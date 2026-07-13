@@ -53,6 +53,9 @@ def authorize():
         "state": state,
     }
     query = "&".join(f"{k}={v}" for k, v in params.items())
+
+    print(f"[OAUTH DEBUG] /authorize -> redirecting with redirect_uri={REDIRECT_URI} client_id={CLIENT_ID}")
+
     return redirect(f"{ROBLOX_AUTHORIZE_URL}?{query}")
 
 
@@ -74,40 +77,3 @@ def callback():
     token_resp = requests.post(ROBLOX_TOKEN_URL, data={
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": REDIRECT_URI,
-    })
-
-    if token_resp.status_code != 200:
-        return render_template("error.html", message="Failed to exchange authorization code with Roblox."), 400
-
-    access_token = token_resp.json().get("access_token")
-
-    # Fetch the Roblox profile
-    userinfo_resp = requests.get(
-        ROBLOX_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
-    )
-    if userinfo_resp.status_code != 200:
-        return render_template("error.html", message="Failed to fetch your Roblox profile."), 400
-
-    profile = userinfo_resp.json()
-    roblox_id = profile.get("sub")
-    roblox_username = profile.get("preferred_username") or profile.get("nickname")
-
-    # Store the verification record
-    _db["verifications"].update_one(
-        {"discord_id": discord_id},
-        {"$set": {
-            "discord_id": discord_id,
-            "roblox_id": str(roblox_id),
-            "roblox_username": roblox_username,
-            "verified_at": time.time(),
-        }},
-        upsert=True,
-    )
-
-    # Clean up the used state
-    _db["oauth_states"].delete_one({"state": state})
-
-    return render_template("success.html", roblox_username=roblox_username)
