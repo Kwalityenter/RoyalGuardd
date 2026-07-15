@@ -31,7 +31,7 @@ class Database:
         self.rankbinds = self.db["rankbinds"]                # guild_id -> [rankbind configs]
         self.ticket_config = self.db["ticket_config"]        # guild_id -> ticket settings
         self.tickets = self.db["tickets"]                    # channel_id -> ticket data
-        self.guild_config = self.db["guild_config"]           # guild_id -> misc settings
+        self.guild_config = self.db["guild_config"]           # guild_id -> misc settings (incl. log channels)
         self.oauth_states = self.db["oauth_states"]            # state -> discord_id (CSRF-safe OAuth)
 
     async def ensure_indexes(self):
@@ -116,7 +116,7 @@ class Database:
     # ============================================================
     # RANKBINDS
     # ============================================================
-    async def add_rankbind(self, guild_id: int, group_id: int, rank_id: int, role_id: int, rank_name: str = ""):
+    async def add_rankbind(self, guild_id: int, group_id: int, rank_id: int, role_id: int, rank_name: str = "", nickname_prefix: str = ""):
         await self.rankbinds.update_one(
             {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id},
             {"$set": {
@@ -125,6 +125,7 @@ class Database:
                 "rank_id": rank_id,
                 "role_id": str(role_id),
                 "rank_name": rank_name,
+                "nickname_prefix": nickname_prefix,
             }},
             upsert=True,
         )
@@ -189,6 +190,16 @@ class Database:
             {"$set": kwargs},
             upsert=True,
         )
+
+    # ============================================================
+    # LOG CHANNELS (moderation / rank / update logs)
+    # ============================================================
+    async def get_log_channel(self, guild_id: int, log_type: str):
+        config = await self.get_guild_config(guild_id)
+        return config.get(f"{log_type}_log_channel_id")
+
+    async def set_log_channel(self, guild_id: int, log_type: str, channel_id: int):
+        await self.set_guild_config(guild_id, **{f"{log_type}_log_channel_id": str(channel_id)})
 
     # ============================================================
     # OAUTH STATE (CSRF protection for the verification flow)

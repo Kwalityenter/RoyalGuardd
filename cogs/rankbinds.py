@@ -1,8 +1,8 @@
 """
 cogs/rankbinds.py
 ------------------
-Manage rank -> Discord role bindings per Roblox group. These power the
-automatic role assignment used by /update and /updateall.
+Manage rank -> Discord role bindings per Roblox group, plus an optional
+nickname prefix (e.g. "[OF-8]") applied automatically during role sync.
 """
 
 import discord
@@ -43,18 +43,27 @@ class RankBinds(commands.Cog):
         group_id="The Roblox group ID",
         rank_id="The Roblox rank number (1-255) to bind",
         role="The Discord role to assign for this rank",
+        nickname_prefix="Optional nickname prefix, e.g. '[OF-8]' (leave blank for none)",
     )
-    async def rankbind_add(self, interaction: discord.Interaction, group_id: int, rank_id: int, role: discord.Role):
+    async def rankbind_add(
+        self,
+        interaction: discord.Interaction,
+        group_id: int,
+        rank_id: int,
+        role: discord.Role,
+        nickname_prefix: str = "",
+    ):
         await interaction.response.defer(ephemeral=True)
 
         roles = await roblox.get_group_roles(group_id)
         rank_name = next((r["name"] for r in roles if r["rank"] == rank_id), f"Rank {rank_id}")
 
-        await db.add_rankbind(interaction.guild.id, group_id, rank_id, role.id, rank_name)
+        await db.add_rankbind(interaction.guild.id, group_id, rank_id, role.id, rank_name, nickname_prefix)
+        extra = f" Nickname prefix: `{nickname_prefix}`." if nickname_prefix else ""
         await interaction.followup.send(
             embed=embeds.success_embed(
                 "Rankbind Added",
-                f"Rank **{rank_name}** (`{rank_id}`) in group `{group_id}` now maps to {role.mention}."
+                f"Rank **{rank_name}** (`{rank_id}`) in group `{group_id}` now maps to {role.mention}.{extra}"
             )
         )
 
@@ -74,10 +83,12 @@ class RankBinds(commands.Cog):
                 embed=embeds.info_embed("No Rankbinds", f"No rankbinds found for group `{group_id}`.")
             )
 
-        description = "\n".join(
-            f"• **{b.get('rank_name', 'Rank')}** (`{b['rank_id']}`) → <@&{b['role_id']}>" for b in binds
-        )
-        await interaction.response.send_message(embed=embeds.info_embed(f"Rankbinds for {group_id}", description))
+        lines = []
+        for b in binds:
+            prefix = f" | Nickname: `{b['nickname_prefix']}`" if b.get("nickname_prefix") else ""
+            lines.append(f"• **{b.get('rank_name', 'Rank')}** (`{b['rank_id']}`) → <@&{b['role_id']}>{prefix}")
+
+        await interaction.response.send_message(embed=embeds.info_embed(f"Rankbinds for {group_id}", "\n".join(lines)))
 
 
 async def setup(bot: commands.Bot):

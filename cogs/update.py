@@ -3,6 +3,12 @@ cogs/update.py
 ---------------
 /update       - syncs the invoking user's roles against all bound groups/ranks
 /updateall    - syncs every verified member in the server (admin level 10+)
+
+sync_member_roles is the shared core: it adds/removes Discord roles based
+on the member's live Roblox rank, applies a nickname prefix from the
+highest-ranking matched rankbind, and posts a "Roles Update" log (matching
+the Nickname / Roles Added / Roles Removed format) to the configured
+"update" log channel if one is set.
 """
 
 import asyncio
@@ -17,11 +23,14 @@ from config import settings
 
 
 async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox_id: int):
-    """Compares the member's current roles against every rankbind and
-    adds/removes roles as needed. Returns (added, removed) role name lists.
+    """Compares the member's current roles against every rankbind, adds/removes
+    roles as needed, applies the highest-priority nickname prefix, and logs
+    the result. Returns (added, removed) role name lists.
     """
     groupbinds = await db.list_groupbinds(guild.id)
     added, removed = [], []
+    best_prefix = None
+    best_rank_id = -1
 
     for gb in groupbinds:
         group_id = int(gb["group_id"])
@@ -45,6 +54,38 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
                     removed.append(role.name)
             except discord.Forbidden:
                 continue
+
+            # Track the highest rank that has a nickname prefix, so someone
+            # holding multiple rankbinds gets the most senior prefix applied.
+            if should_have and rb.get("nickname_prefix") and int(rb["rank_id"]) > best_rank_id:
+                best_rank_id = int(rb["rank_id"])
+                best_prefix = rb["nickname_prefix"]
+
+    nickname_changed = False
+    if best_prefix and guild.me.guild_permissions.manage_nicknames and member.id != guild.owner_id:
+        base_name = member.name
+        new_nick = f"{best_prefix} {base_name}"
+        if member.nick != new_nick:
+            try:
+                await member.edit(nick=new_nick[:32], reason="Royal Guard rank sync")
+                nickname_changed = True
+            except discord.Forbidden:
+                pass
+
+    if added or removed or nickname_changed:
+        log_embed = embeds.info_embed(
+            "Roles Update",
+            "Successfully updated user roles"
+        )
+        log_embed.add_field(name="Nickname", value=member.nick or member.name, inline=False)
+        log_embed.add_field(name="Roles Added", value=", ".join(added) if added else "None", inline=False)
+        log_embed.add_field(name="Roles Removed", value=", ".join(removed) if removed else "None", inline=False)
+
+        channel_id = await db.get_log_channel(guild.id, "update")
+        if channel_id:
+            channel = guild.get_channel(int(channel_id))
+            if channel:
+                await channel.send(embed=log_embed)
 
     return added, removed
 
@@ -95,7 +136,7 @@ class Update(commands.Cog):
                 updated += 1
             except Exception:
                 failed += 1
-            await asyncio.sleep(0.5)  # Rate-limit friendly pacing
+            await asyncio.sleep(0.5)
 
         await message.edit(embed=embeds.success_embed(
             "Update Complete", f"Synced **{updated}** members. Failed: **{failed}**."

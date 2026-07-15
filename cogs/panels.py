@@ -1,9 +1,9 @@
 """
 cogs/panels.py
 ---------------
-/panel verification  - posts the persistent verification panel (matches
-                        the British Army Verification System V5 image)
-/panel tickets        - posts the two ticket panels (Report / Other)
+/panel verification  - posts the persistent verification panel
+/panel tickets        - posts the REPORT TICKETS / OTHER TICKETS panels,
+                        each with a single "Create Ticket" button
 """
 
 import discord
@@ -13,7 +13,7 @@ from discord.ext import commands
 from utils import embeds
 from utils.permissions import require_level
 from cogs.verification import VerificationView
-from cogs.tickets import ReportTicketView, OtherTicketView
+from cogs.tickets import ReportPanelView, OtherPanelView
 
 
 class PanelGroup(app_commands.Group):
@@ -46,14 +46,17 @@ class Panels(commands.Cog):
 
     @require_level(10)
     async def panel_tickets(self, interaction: discord.Interaction):
-        main_embed = embeds.ticket_panel_embed()
-        await interaction.channel.send(embed=main_embed)
+        report_embed = embeds.base_embed(
+            title="REPORT TICKETS",
+            description="Press the 🚨 **Create Ticket** for tickets to report an incident or other users."
+        )
+        await interaction.channel.send(embed=report_embed, view=ReportPanelView())
 
-        report_embed = embeds.info_embed("📋 Report Tickets", "Select a report type below to open a report ticket.")
-        await interaction.channel.send(embed=report_embed, view=ReportTicketView())
-
-        other_embed = embeds.info_embed("🎫 Other Tickets", "Select a category below for bugs, exploits, or applications.")
-        await interaction.channel.send(embed=other_embed, view=OtherTicketView())
+        other_embed = embeds.base_embed(
+            title="OTHER TICKETS",
+            description="Press the 🚨 **Create Ticket** for tickets regarding other matters."
+        )
+        await interaction.channel.send(embed=other_embed, view=OtherPanelView())
 
         await interaction.response.send_message(
             embed=embeds.success_embed("Panels Posted", "Ticket panels have been posted."), ephemeral=True

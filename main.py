@@ -26,8 +26,8 @@ from config import settings
 from database.mongodb import db
 
 INTENTS = discord.Intents.default()
-INTENTS.members = True          # Required for fetch_members / update all
-INTENTS.message_content = True  # Required for prefix commands like !bgcheck
+INTENTS.members = True
+INTENTS.message_content = True
 
 COGS = [
     "cogs.adminlevels",
@@ -38,6 +38,8 @@ COGS = [
     "cogs.tickets",
     "cogs.panels",
     "cogs.bgcheck",
+    "cogs.moderation",
+    "cogs.setrank",
 ]
 
 
@@ -46,11 +48,9 @@ class RoyalGuardBot(commands.Bot):
         super().__init__(command_prefix=settings.COMMAND_PREFIX, intents=INTENTS, help_command=None)
 
     async def setup_hook(self):
-        # Ensure MongoDB indexes exist
         await db.ensure_indexes()
         log.info("MongoDB indexes ensured.")
 
-        # Load cogs
         for cog in COGS:
             try:
                 await self.load_extension(cog)
@@ -58,15 +58,13 @@ class RoyalGuardBot(commands.Bot):
             except Exception as e:
                 log.exception(f"Failed to load cog {cog}: {e}")
 
-        # Register persistent views so buttons survive restarts
         from cogs.verification import VerificationView
-        from cogs.tickets import ReportTicketView, OtherTicketView, CloseTicketView
+        from cogs.tickets import ReportPanelView, OtherPanelView, CloseTicketView
         self.add_view(VerificationView())
-        self.add_view(ReportTicketView())
-        self.add_view(OtherTicketView())
+        self.add_view(ReportPanelView())
+        self.add_view(OtherPanelView())
         self.add_view(CloseTicketView())
 
-        # Sync slash commands
         dev_guild_id = os.getenv("DEV_GUILD_ID")
         if dev_guild_id:
             guild = discord.Object(id=int(dev_guild_id))

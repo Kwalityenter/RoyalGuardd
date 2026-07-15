@@ -1,9 +1,11 @@
 """
 cogs/tickets.py
 ----------------
-Dropdown-based ticket system with two panels (Report / Other), verified-user
-gating, support-role access, category-based channel routing, close button,
-and basic transcript generation.
+Two ticket panels (Report / Other), each showing a single red "Create
+Ticket" button. Clicking it opens an ephemeral "Select Ticket Category"
+dropdown, matching the reference layout. Selecting a category creates
+the routed ticket channel with verified-user gating, support-role access,
+a close button, and transcript generation.
 """
 
 import io
@@ -29,11 +31,10 @@ async def _create_ticket_channel(interaction: discord.Interaction, category_key:
 
     if not config:
         return await interaction.response.send_message(
-            embed=embeds.error_embed("Not Configured", "The ticket system has not been configured yet. Ask an admin to run `/panel tickets` setup."),
+            embed=embeds.error_embed("Not Configured", "The ticket system has not been configured yet. Ask an admin to run `/ticketconfig` first."),
             ephemeral=True,
         )
 
-    # Verified-user gate
     if config.get("require_verification", True):
         verification = await db.get_verification(interaction.user.id)
         if not verification:
@@ -101,7 +102,6 @@ class CloseTicketView(discord.ui.View):
 
         await interaction.response.send_message(embed=embeds.info_embed("Closing Ticket", "Generating transcript..."))
 
-        # Basic transcript generation
         lines = []
         async for msg in interaction.channel.history(limit=None, oldest_first=True):
             timestamp = msg.created_at.strftime("%Y-%m-%d %H:%M:%S")
@@ -136,8 +136,7 @@ class ReportTicketSelect(discord.ui.Select):
             discord.SelectOption(label=label, value=key, emoji=emoji)
             for label, key, emoji in settings.REPORT_TICKET_OPTIONS
         ]
-        super().__init__(placeholder="Select a report type...", options=options,
-                          custom_id="royalguard:report_select")
+        super().__init__(placeholder="Select Ticket Category", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         await _create_ticket_channel(interaction, self.values[0])
@@ -149,23 +148,44 @@ class OtherTicketSelect(discord.ui.Select):
             discord.SelectOption(label=label, value=key, emoji=emoji)
             for label, key, emoji in settings.OTHER_TICKET_OPTIONS
         ]
-        super().__init__(placeholder="Select a ticket type...", options=options,
-                          custom_id="royalguard:other_select")
+        super().__init__(placeholder="Select Ticket Category", options=options)
 
     async def callback(self, interaction: discord.Interaction):
         await _create_ticket_channel(interaction, self.values[0])
 
 
-class ReportTicketView(discord.ui.View):
+class ReportPanelView(discord.ui.View):
+    """Persistent view - the single red button shown on the REPORT TICKETS panel."""
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(ReportTicketSelect())
+
+    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.danger, emoji="🚨",
+                        custom_id="royalguard:report_panel_button")
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = discord.ui.View(timeout=180)
+        view.add_item(ReportTicketSelect())
+        await interaction.response.send_message(
+            embed=embeds.info_embed("Create Ticket", "Use the select menu below to select which ticket you wish to open"),
+            view=view,
+            ephemeral=True,
+        )
 
 
-class OtherTicketView(discord.ui.View):
+class OtherPanelView(discord.ui.View):
+    """Persistent view - the single red button shown on the OTHER TICKETS panel."""
     def __init__(self):
         super().__init__(timeout=None)
-        self.add_item(OtherTicketSelect())
+
+    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.danger, emoji="🚨",
+                        custom_id="royalguard:other_panel_button")
+    async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = discord.ui.View(timeout=180)
+        view.add_item(OtherTicketSelect())
+        await interaction.response.send_message(
+            embed=embeds.info_embed("Create Ticket", "Use the select menu below to select which ticket you wish to open"),
+            view=view,
+            ephemeral=True,
+        )
 
 
 class Tickets(commands.Cog):
