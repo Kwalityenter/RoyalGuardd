@@ -9,11 +9,11 @@ import os
 
 BOT_NAME = "Royal Guard"
 BOT_TAG = "British Army Verification System"
-BOT_VERSION = "V5"
+BOT_VERSION = "V2"
 
 BOT_ICON_URL = os.getenv(
     "BOT_ICON_URL",
-    "https://i.imgur.com/placeholder_crest.png"
+    "https://i.imgur.com/ILUPJLN.png"
 )
 
 EMBED_COLOR = 0x87CEEB
