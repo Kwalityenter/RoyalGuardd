@@ -20,15 +20,15 @@ def base_embed(title: str = None, description: str = None, color: int = None) ->
 
 
 def success_embed(title: str, description: str = None) -> discord.Embed:
-    return base_embed(title=f"✅ {title}", description=description, color=settings.SUCCESS_COLOR)
+    return base_embed(title=title, description=description, color=settings.SUCCESS_COLOR)
 
 
 def error_embed(title: str, description: str = None) -> discord.Embed:
-    return base_embed(title=f"❌ {title}", description=description, color=settings.ERROR_COLOR)
+    return base_embed(title=title, description=description, color=settings.ERROR_COLOR)
 
 
 def warning_embed(title: str, description: str = None) -> discord.Embed:
-    return base_embed(title=f"⚠️ {title}", description=description, color=settings.WARNING_COLOR)
+    return base_embed(title=title, description=description, color=settings.WARNING_COLOR)
 
 
 def info_embed(title: str, description: str = None) -> discord.Embed:
@@ -36,7 +36,6 @@ def info_embed(title: str, description: str = None) -> discord.Embed:
 
 
 def verification_panel_embed() -> discord.Embed:
-    """Matches the British Army Verification System V5 panel style."""
     embed = discord.Embed(
         title=settings.VERIFICATION_PANEL_TITLE,
         description=settings.VERIFICATION_PANEL_DESCRIPTION,

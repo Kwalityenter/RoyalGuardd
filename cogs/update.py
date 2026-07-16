@@ -3,12 +3,6 @@ cogs/update.py
 ---------------
 /update       - syncs the invoking user's roles against all bound groups/ranks
 /updateall    - syncs every verified member in the server (admin level 10+)
-
-sync_member_roles is the shared core: it adds/removes Discord roles based
-on the member's live Roblox rank, applies a nickname prefix from the
-highest-ranking matched rankbind, and posts a "Roles Update" log (matching
-the Nickname / Roles Added / Roles Removed format) to the configured
-"update" log channel if one is set.
 """
 
 import asyncio
@@ -25,7 +19,7 @@ from config import settings
 async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox_id: int):
     """Compares the member's current roles against every rankbind, adds/removes
     roles as needed, applies the highest-priority nickname prefix, and logs
-    the result. Returns (added, removed) role name lists.
+    the result. Returns (added, removed, nickname_changed).
     """
     groupbinds = await db.list_groupbinds(guild.id)
     added, removed = [], []
@@ -55,8 +49,6 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
             except discord.Forbidden:
                 continue
 
-            # Track the highest rank that has a nickname prefix, so someone
-            # holding multiple rankbinds gets the most senior prefix applied.
             if should_have and rb.get("nickname_prefix") and int(rb["rank_id"]) > best_rank_id:
                 best_rank_id = int(rb["rank_id"])
                 best_prefix = rb["nickname_prefix"]
@@ -73,10 +65,7 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
                 pass
 
     if added or removed or nickname_changed:
-        log_embed = embeds.info_embed(
-            "Roles Update",
-            "Successfully updated user roles"
-        )
+        log_embed = embeds.info_embed("Roles Update", "Succesfully updated user roles")
         log_embed.add_field(name="Nickname", value=member.nick or member.name, inline=False)
         log_embed.add_field(name="Roles Added", value=", ".join(added) if added else "None", inline=False)
         log_embed.add_field(name="Roles Removed", value=", ".join(removed) if removed else "None", inline=False)
@@ -87,7 +76,7 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
             if channel:
                 await channel.send(embed=log_embed)
 
-    return added, removed
+    return added, removed, nickname_changed
 
 
 class Update(commands.Cog):
@@ -101,18 +90,19 @@ class Update(commands.Cog):
         verification = await db.get_verification(interaction.user.id)
         if not verification:
             return await interaction.followup.send(
-                embed=embeds.error_embed("Not Verified", "You need to verify with `/panel verification` first.")
+                embed=embeds.error_embed("Warning - Not Verified", "You must be verified to update your roles.")
             )
 
-        added, removed = await sync_member_roles(interaction.guild, interaction.user, int(verification["roblox_id"]))
+        added, removed, nickname_changed = await sync_member_roles(
+            interaction.guild, interaction.user, int(verification["roblox_id"])
+        )
 
-        desc = "Your roles have been synced."
-        if added:
-            desc += f"\n**Added:** {', '.join(added)}"
-        if removed:
-            desc += f"\n**Removed:** {', '.join(removed)}"
+        embed = embeds.success_embed("Roles Update", "Succesfully updated user roles")
+        embed.add_field(name="Nickname", value=interaction.user.nick or interaction.user.name, inline=False)
+        embed.add_field(name="Roles Added", value=", ".join(added) if added else "None", inline=False)
+        embed.add_field(name="Roles Removed", value=", ".join(removed) if removed else "None", inline=False)
 
-        await interaction.followup.send(embed=embeds.success_embed("Roles Updated", desc))
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="updateall", description="Sync roles for every verified member in the server.")
     @require_level(settings.UPDATEALL_MIN_LEVEL)

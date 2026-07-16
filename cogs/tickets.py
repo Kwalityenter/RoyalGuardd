@@ -39,7 +39,7 @@ async def _create_ticket_channel(interaction: discord.Interaction, category_key:
         verification = await db.get_verification(interaction.user.id)
         if not verification:
             return await interaction.response.send_message(
-                embed=embeds.error_embed("Verification Required", "You must verify your Roblox account before opening a ticket."),
+                embed=embeds.error_embed("Warning - Not Verified", "You must be verified to create report or other tickets."),
                 ephemeral=True,
             )
 
@@ -75,7 +75,7 @@ async def _create_ticket_channel(interaction: discord.Interaction, category_key:
     await db.create_ticket(channel.id, guild.id, interaction.user.id, category_key)
 
     intro = embeds.info_embed(
-        f"{emoji} {label}",
+        label,
         f"{interaction.user.mention} has opened a ticket for **{label}**.\n\n"
         "Please describe your issue in detail. A member of staff will assist you shortly."
     )
@@ -92,7 +92,7 @@ class CloseTicketView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger,
-                        emoji="🔒", custom_id="royalguard:close_ticket")
+                        custom_id="royalguard:close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         ticket = await db.get_ticket(interaction.channel.id)
         if not ticket:
@@ -133,7 +133,7 @@ class CloseTicketView(discord.ui.View):
 class ReportTicketSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label=label, value=key, emoji=emoji)
+            discord.SelectOption(label=label, value=key)
             for label, key, emoji in settings.REPORT_TICKET_OPTIONS
         ]
         super().__init__(placeholder="Select Ticket Category", options=options)
@@ -145,7 +145,7 @@ class ReportTicketSelect(discord.ui.Select):
 class OtherTicketSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label=label, value=key, emoji=emoji)
+            discord.SelectOption(label=label, value=key)
             for label, key, emoji in settings.OTHER_TICKET_OPTIONS
         ]
         super().__init__(placeholder="Select Ticket Category", options=options)
@@ -159,7 +159,7 @@ class ReportPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.danger, emoji="🚨",
+    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.danger,
                         custom_id="royalguard:report_panel_button")
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = discord.ui.View(timeout=180)
@@ -176,7 +176,7 @@ class OtherPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.danger, emoji="🚨",
+    @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.danger,
                         custom_id="royalguard:other_panel_button")
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = discord.ui.View(timeout=180)
