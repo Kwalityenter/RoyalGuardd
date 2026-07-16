@@ -2,12 +2,6 @@
 website/routes/oauth.py
 ------------------------
 Handles the Roblox OAuth2 authorization + callback flow.
-
-/authorize?state=<state>   -> redirects the user to Roblox's consent screen
-/callback?code=...&state=... -> exchanges the code for a token, fetches the
-                                  Roblox profile, geolocates the requester's
-                                  IP, writes everything to MongoDB, and posts
-                                  a log to Discord via webhook.
 """
 
 import os
@@ -32,8 +26,6 @@ _db = _client[os.getenv("MONGODB_DB_NAME", "royalguard")]
 
 
 def get_client_ip():
-    """Railway (and most hosts) sit behind a proxy, so the real client IP
-    is in X-Forwarded-For, not request.remote_addr."""
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
@@ -41,34 +33,24 @@ def get_client_ip():
 
 
 def get_geolocation(ip_address: str):
-    """Get geolocation data from ipinfo.io. Falls back to 'Unknown' fields
-    on any failure so verification never blocks on this."""
     fallback = {
-        "ip": ip_address,
-        "country": "Unknown",
-        "country_code": "Unknown",
-        "region": "Unknown",
-        "latitude": None,
-        "longitude": None,
-        "isp": "Unknown",
+        "ip": ip_address, "country": "Unknown", "country_code": "Unknown",
+        "region": "Unknown", "latitude": None, "longitude": None, "isp": "Unknown",
     }
-
     try:
         response = requests.get(f"https://ipinfo.io/{ip_address}/json", timeout=5)
         if response.status_code != 200:
             return fallback
-
         data = response.json()
         lat, lon = None, None
-        loc = data.get("loc")  # ipinfo returns "lat,long" as a single string
+        loc = data.get("loc")
         if loc and "," in loc:
             lat_str, lon_str = loc.split(",")
             lat, lon = float(lat_str), float(lon_str)
-
         return {
             "ip": ip_address,
             "country": data.get("country", "Unknown"),
-            "country_code": data.get("country", "Unknown"),  # ipinfo's "country" field is already the ISO code
+            "country_code": data.get("country", "Unknown"),
             "region": data.get("region", "Unknown"),
             "latitude": lat,
             "longitude": lon,
@@ -81,7 +63,6 @@ def get_geolocation(ip_address: str):
 def post_verification_log(discord_id: str, roblox_username: str, roblox_id: str, geo: dict):
     if not VERIFICATION_WEBHOOK:
         return
-
     embed = {
         "title": "✅ New Verification",
         "color": 0x57A05A,
@@ -95,11 +76,10 @@ def post_verification_log(discord_id: str, roblox_username: str, roblox_id: str,
         ],
         "footer": {"text": "Royal Guard V5"},
     }
-
     try:
         requests.post(VERIFICATION_WEBHOOK, json={"embeds": [embed]}, timeout=5)
     except Exception:
-        pass  # Never let a webhook failure break verification
+        pass
 
 
 @oauth_bp.route("/authorize")
@@ -120,6 +100,9 @@ def authorize():
         "state": state,
     }
     query = "&".join(f"{k}={v}" for k, v in params.items())
+
+    print(f"[OAUTH DEBUG] /authorize -> client_id={CLIENT_ID!r} redirect_uri={REDIRECT_URI!r}")
+
     return redirect(f"{ROBLOX_AUTHORIZE_URL}?{query}")
 
 
@@ -145,6 +128,9 @@ def callback():
         "redirect_uri": REDIRECT_URI,
     })
 
+    print(f"[OAUTH DEBUG] token exchange status={token_resp.status_code} body={token_resp.text}")
+    print(f"[OAUTH DEBUG] client_id used={CLIENT_ID!r} redirect_uri used={REDIRECT_URI!r}")
+
     if token_resp.status_code != 200:
         return render_template("error.html", message="Failed to exchange authorization code with Roblox."), 400
 
@@ -153,6 +139,9 @@ def callback():
     userinfo_resp = requests.get(
         ROBLOX_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
     )
+
+    print(f"[OAUTH DEBUG] userinfo status={userinfo_resp.status_code} body={userinfo_resp.text}")
+
     if userinfo_resp.status_code != 200:
         return render_template("error.html", message="Failed to fetch your Roblox profile."), 400
 
@@ -160,11 +149,9 @@ def callback():
     roblox_id = profile.get("sub")
     roblox_username = profile.get("preferred_username") or profile.get("nickname")
 
-    # Geolocation
     client_ip = get_client_ip()
     geo = get_geolocation(client_ip)
 
-    # Store the verification record, including geolocation
     _db["verifications"].update_one(
         {"discord_id": discord_id},
         {"$set": {
