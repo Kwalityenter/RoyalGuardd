@@ -2,16 +2,22 @@
 cogs/adminlevels.py
 --------------------
 Slash commands to manage the staff hierarchy admin level system.
+
+Only BOT_OWNER_ID (set in the environment) is automatically Owner level.
+Everyone else defaults to 0 unless explicitly set here.
 """
 
+import os
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from database.mongodb import db
 from utils import embeds
-from utils.permissions import require_level, has_level
+from utils.permissions import require_level
 from config import settings
+
+BOT_OWNER_ID = os.getenv("BOT_OWNER_ID")
 
 
 class AdminLevels(commands.Cog):
@@ -28,9 +34,10 @@ class AdminLevels(commands.Cog):
                 ephemeral=True,
             )
 
-        # Prevent staff from setting a level higher than or equal to their own (except Owner)
         caller_level = await db.get_admin_level(interaction.user.id)
-        if caller_level != settings.OWNER_LEVEL and level >= caller_level:
+        is_bot_owner = BOT_OWNER_ID and str(interaction.user.id) == str(BOT_OWNER_ID)
+
+        if not is_bot_owner and level >= caller_level:
             return await interaction.response.send_message(
                 embed=embeds.error_embed("Not Allowed", "You cannot assign a level equal to or higher than your own."),
                 ephemeral=True,
@@ -54,10 +61,10 @@ class AdminLevels(commands.Cog):
     @app_commands.describe(user="The user to check (defaults to yourself)")
     async def adminlevel(self, interaction: discord.Interaction, user: discord.Member = None):
         target = user or interaction.user
-        level = await db.get_admin_level(target.id)
-        is_owner = target.id == interaction.guild.owner_id or target.guild_permissions.administrator
+        is_bot_owner = BOT_OWNER_ID and str(target.id) == str(BOT_OWNER_ID)
 
-        display_level = settings.OWNER_LEVEL if (is_owner and level < settings.OWNER_LEVEL) else level
+        level = await db.get_admin_level(target.id)
+        display_level = settings.OWNER_LEVEL if is_bot_owner else level
         label = "Owner (Infinite)" if display_level == settings.OWNER_LEVEL else str(display_level)
 
         await interaction.response.send_message(
