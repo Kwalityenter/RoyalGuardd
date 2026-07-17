@@ -1,4 +1,3 @@
-cat > config/settings.py << 'PYEOF'
 """
 config/settings.py
 -------------------
@@ -28,7 +27,7 @@ FOOTER_ICON = BOT_ICON_URL
 AUTHOR_TEXT = BOT_NAME
 AUTHOR_ICON = BOT_ICON_URL
 
-VERIFICATION_PANEL_TITLE = "BRITISH ARMY VERIFICATION SYSTEM V5"
+VERIFICATION_PANEL_TITLE = "BRITISH ARMY VERIFICATION SYSTEM V2"
 VERIFICATION_PANEL_DESCRIPTION = (
     "Press the **Verify / Reverify** button to verify or reverify your ROBLOX account."
 )
@@ -59,4 +58,3 @@ OWNER_LEVEL = 999999
 UPDATEALL_MIN_LEVEL = 10
 
 COMMAND_PREFIX = "!"
-PYEOF
