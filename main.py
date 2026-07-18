@@ -28,6 +28,7 @@ from database.mongodb import db
 INTENTS = discord.Intents.default()
 INTENTS.members = True
 INTENTS.message_content = True
+INTENTS.invites = True
 
 COGS = [
     "cogs.adminlevels",
@@ -40,6 +41,9 @@ COGS = [
     "cogs.bgcheck",
     "cogs.moderation",
     "cogs.setrank",
+    "cogs.rankrequest",
+    "cogs.reactionroles",
+    "cogs.invites",
 ]
 
 
@@ -60,10 +64,17 @@ class RoyalGuardBot(commands.Bot):
 
         from cogs.verification import VerificationView
         from cogs.tickets import ReportPanelView, OtherPanelView, CloseTicketView
+        from cogs.rankrequest import RankRequestView
+
         self.add_view(VerificationView())
         self.add_view(ReportPanelView())
         self.add_view(OtherPanelView())
         self.add_view(CloseTicketView())
+
+        pending_requests = await db.get_pending_rank_requests()
+        for req in pending_requests:
+            self.add_view(RankRequestView(req["_id"]))
+        log.info(f"Re-registered {len(pending_requests)} pending rank request views.")
 
         dev_guild_id = os.getenv("DEV_GUILD_ID")
         if dev_guild_id:

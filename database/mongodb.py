@@ -25,14 +25,18 @@ class Database:
         self.db = self.client[db_name]
 
         # Collections
-        self.verifications = self.db["verifications"]      # discord_id -> roblox link
-        self.admin_levels = self.db["admin_levels"]         # discord_id -> level
-        self.groupbinds = self.db["groupbinds"]             # guild_id -> [group configs]
-        self.rankbinds = self.db["rankbinds"]                # guild_id -> [rankbind configs]
-        self.ticket_config = self.db["ticket_config"]        # guild_id -> ticket settings
-        self.tickets = self.db["tickets"]                    # channel_id -> ticket data
-        self.guild_config = self.db["guild_config"]           # guild_id -> misc settings (incl. log channels)
-        self.oauth_states = self.db["oauth_states"]            # state -> discord_id (CSRF-safe OAuth)
+        self.verifications = self.db["verifications"]
+        self.admin_levels = self.db["admin_levels"]
+        self.groupbinds = self.db["groupbinds"]
+        self.rankbinds = self.db["rankbinds"]
+        self.ticket_config = self.db["ticket_config"]
+        self.tickets = self.db["tickets"]
+        self.guild_config = self.db["guild_config"]
+        self.oauth_states = self.db["oauth_states"]
+        self.rank_requests = self.db["rank_requests"]
+        self.reaction_roles = self.db["reaction_roles"]
+        self.invites = self.db["invites"]
+        self.invite_credits = self.db["invite_credits"]
 
     async def ensure_indexes(self):
         """Create indexes needed for fast lookups. Call once on startup."""
@@ -45,7 +49,11 @@ class Database:
         await self.tickets.create_index("channel_id", unique=True)
         await self.guild_config.create_index("guild_id", unique=True)
         await self.oauth_states.create_index("state", unique=True)
-        await self.oauth_states.create_index("created_at", expireAfterSeconds=600)  # auto-expire after 10 min
+        await self.oauth_states.create_index("created_at", expireAfterSeconds=600)
+        await self.rank_requests.create_index("status")
+        await self.reaction_roles.create_index("message_id")
+        await self.invites.create_index([("guild_id", 1), ("code", 1)], unique=True)
+        await self.invite_credits.create_index([("guild_id", 1), ("inviter_id", 1)], unique=True)
 
     # ============================================================
     # VERIFICATION
@@ -106,7 +114,6 @@ class Database:
 
     async def remove_groupbind(self, guild_id: int, group_id: int):
         await self.groupbinds.delete_one({"guild_id": str(guild_id), "group_id": str(group_id)})
-        # Also clean up rankbinds tied to this group
         await self.rankbinds.delete_many({"guild_id": str(guild_id), "group_id": str(group_id)})
 
     async def list_groupbinds(self, guild_id: int):
@@ -216,6 +223,126 @@ class Database:
         if doc:
             await self.oauth_states.delete_one({"state": state})
         return doc
+
+    # ============================================================
+    # RANK REQUESTS
+    # ============================================================
+    async def create_rank_request(self, guild_id: int, requester_id: int, group_id: int,
+                                    rank_id: int, rank_name: str, group_name: str):
+        from bson import ObjectId
+        request_id = str(ObjectId())
+        doc = {
+            "_id": request_id,
+            "guild_id": str(guild_id),
+            "requester_id": str(requester_id),
+            "group_id": str(group_id),
+            "group_name": group_name,
+            "rank_id": rank_id,
+            "rank_name": rank_name,
+            "status": "pending",
+            "created_at": time.time(),
+        }
+        await self.rank_requests.insert_one(doc)
+        return doc
+
+    async def get_rank_request(self, request_id: str):
+        return await self.rank_requests.find_one({"_id": request_id})
+
+    async def update_rank_request_status(self, request_id: str, status: str, resolved_by: int = None):
+        update = {"status": status, "resolved_at": time.time()}
+        if resolved_by:
+            update["resolved_by"] = str(resolved_by)
+        await self.rank_requests.update_one({"_id": request_id}, {"$set": update})
+
+    async def get_pending_rank_requests(self):
+        cursor = self.rank_requests.find({"status": "pending"})
+        return [doc async for doc in cursor]
+
+    async def get_rank_request_config(self, guild_id: int):
+        config = await self.get_guild_config(guild_id)
+        return {
+            "approver_role_id": config.get("rankrequest_approver_role_id"),
+            "requests_channel_id": config.get("rankrequest_channel_id"),
+        }
+
+    async def set_rank_request_config(self, guild_id: int, approver_role_id: int = None, requests_channel_id: int = None):
+        update = {}
+        if approver_role_id is not None:
+            update["rankrequest_approver_role_id"] = str(approver_role_id)
+        if requests_channel_id is not None:
+            update["rankrequest_channel_id"] = str(requests_channel_id)
+        await self.set_guild_config(guild_id, **update)
+
+    # ============================================================
+    # REACTION ROLES
+    # ============================================================
+    async def add_reaction_role(self, guild_id: int, channel_id: int, message_id: int, emoji: str, role_id: int):
+        await self.reaction_roles.update_one(
+            {"guild_id": str(guild_id), "message_id": str(message_id), "emoji": emoji},
+            {"$set": {
+                "guild_id": str(guild_id),
+                "channel_id": str(channel_id),
+                "message_id": str(message_id),
+                "emoji": emoji,
+                "role_id": str(role_id),
+            }},
+            upsert=True,
+        )
+
+    async def remove_reaction_role(self, message_id: int, emoji: str):
+        await self.reaction_roles.delete_one({"message_id": str(message_id), "emoji": emoji})
+
+    async def get_reaction_role(self, message_id: int, emoji: str):
+        return await self.reaction_roles.find_one({"message_id": str(message_id), "emoji": emoji})
+
+    async def list_reaction_roles(self, message_id: int):
+        cursor = self.reaction_roles.find({"message_id": str(message_id)})
+        return [doc async for doc in cursor]
+
+    async def get_all_reaction_role_message_ids(self):
+        cursor = self.reaction_roles.find({})
+        seen = set()
+        async for doc in cursor:
+            seen.add(doc["message_id"])
+        return list(seen)
+
+    # ============================================================
+    # INVITE TRACKING
+    # ============================================================
+    async def snapshot_invites(self, guild_id: int, invite_data: list):
+        for inv in invite_data:
+            await self.invites.update_one(
+                {"guild_id": str(guild_id), "code": inv["code"]},
+                {"$set": {
+                    "guild_id": str(guild_id),
+                    "code": inv["code"],
+                    "uses": inv["uses"],
+                    "inviter_id": inv["inviter_id"],
+                }},
+                upsert=True,
+            )
+
+    async def get_invite_snapshot(self, guild_id: int, code: str):
+        return await self.invites.find_one({"guild_id": str(guild_id), "code": code})
+
+    async def get_all_invite_snapshots(self, guild_id: int):
+        cursor = self.invites.find({"guild_id": str(guild_id)})
+        return {doc["code"]: doc async for doc in cursor}
+
+    async def add_invite_credit(self, guild_id: int, inviter_id: int, amount: int = 1):
+        await self.invite_credits.update_one(
+            {"guild_id": str(guild_id), "inviter_id": str(inviter_id)},
+            {"$inc": {"count": amount}, "$set": {"guild_id": str(guild_id), "inviter_id": str(inviter_id)}},
+            upsert=True,
+        )
+
+    async def get_invite_credit(self, guild_id: int, inviter_id: int) -> int:
+        doc = await self.invite_credits.find_one({"guild_id": str(guild_id), "inviter_id": str(inviter_id)})
+        return doc["count"] if doc else 0
+
+    async def get_invite_leaderboard(self, guild_id: int, limit: int = 10):
+        cursor = self.invite_credits.find({"guild_id": str(guild_id)}).sort("count", -1).limit(limit)
+        return [doc async for doc in cursor]
 
 
 # Global singleton, initialized in main.py
