@@ -2,9 +2,11 @@
 cogs/adminlevels.py
 --------------------
 Slash commands to manage the staff hierarchy admin level system.
+Levels are scoped per-guild - a level set in one server has no effect
+in any other server the bot is installed in.
 
-Only BOT_OWNER_ID (set in the environment) is automatically Owner level.
-Everyone else defaults to 0 unless explicitly set here.
+Only BOT_OWNER_ID (set in the environment) is automatically Owner level,
+everywhere.
 """
 
 import os
@@ -24,6 +26,12 @@ class AdminLevels(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        if BOT_OWNER_ID and str(member.id) == str(BOT_OWNER_ID):
+            return
+        await db.set_admin_level(member.guild.id, member.id, 0)
+
     @app_commands.command(name="setadmin", description="Set a user's admin level.")
     @app_commands.describe(user="The user to set", level="Admin level (0-100, or 999999 for Owner)")
     @require_level(90)
@@ -34,7 +42,7 @@ class AdminLevels(commands.Cog):
                 ephemeral=True,
             )
 
-        caller_level = await db.get_admin_level(interaction.user.id)
+        caller_level = await db.get_admin_level(interaction.guild.id, interaction.user.id)
         is_bot_owner = BOT_OWNER_ID and str(interaction.user.id) == str(BOT_OWNER_ID)
 
         if not is_bot_owner and level >= caller_level:
@@ -43,18 +51,18 @@ class AdminLevels(commands.Cog):
                 ephemeral=True,
             )
 
-        await db.set_admin_level(user.id, level)
+        await db.set_admin_level(interaction.guild.id, user.id, level)
         await interaction.response.send_message(
-            embed=embeds.success_embed("Admin Level Updated", f"{user.mention} is now admin level **{level}**.")
+            embed=embeds.success_embed("Admin Level Updated", f"{user.mention} is now admin level **{level}** in this server.")
         )
 
     @app_commands.command(name="removeadmin", description="Remove a user's admin level (resets to 0).")
     @app_commands.describe(user="The user to reset")
     @require_level(90)
     async def removeadmin(self, interaction: discord.Interaction, user: discord.Member):
-        await db.remove_admin_level(user.id)
+        await db.remove_admin_level(interaction.guild.id, user.id)
         await interaction.response.send_message(
-            embed=embeds.success_embed("Admin Level Removed", f"{user.mention} has been reset to level **0**.")
+            embed=embeds.success_embed("Admin Level Removed", f"{user.mention} has been reset to level **0** in this server.")
         )
 
     @app_commands.command(name="adminlevel", description="Check a user's admin level.")
@@ -63,12 +71,12 @@ class AdminLevels(commands.Cog):
         target = user or interaction.user
         is_bot_owner = BOT_OWNER_ID and str(target.id) == str(BOT_OWNER_ID)
 
-        level = await db.get_admin_level(target.id)
+        level = await db.get_admin_level(interaction.guild.id, target.id)
         display_level = settings.OWNER_LEVEL if is_bot_owner else level
         label = "Owner (Infinite)" if display_level == settings.OWNER_LEVEL else str(display_level)
 
         await interaction.response.send_message(
-            embed=embeds.info_embed("Admin Level", f"{target.mention}'s admin level: **{label}**")
+            embed=embeds.info_embed("Admin Level", f"{target.mention}'s admin level in this server: **{label}**")
         )
 
 

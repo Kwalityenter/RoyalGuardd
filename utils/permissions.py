@@ -1,19 +1,16 @@
 """
 utils/permissions.py
 ---------------------
-Admin level permission system.
+Admin level permission system, scoped per-guild so a level granted in
+one server has no effect in another.
 
 Level 0        = regular user
 Level 1-100    = staff hierarchy (higher = more powerful)
 Level 999999   = Owner (infinite / bypasses everything)
 
-Only the Discord user ID in BOT_OWNER_ID gets automatic Owner level.
-Everyone else - including members with Administrator permission or the
-guild owner - is governed strictly by what's stored in MongoDB, which
-defaults to 0 unless explicitly set with /setadmin.
-
-Use `require_level(n)` as an app_commands.check for slash commands,
-or `has_level(interaction, n)` for manual checks inside a command body.
+Only the Discord user ID in BOT_OWNER_ID gets automatic Owner level,
+in every server. Everyone else is checked strictly against MongoDB,
+scoped to the current guild.
 """
 
 import os
@@ -26,16 +23,13 @@ BOT_OWNER_ID = os.getenv("BOT_OWNER_ID")
 
 
 async def has_level(user_id: int, guild: discord.Guild, required: int) -> bool:
-    """Returns True if the user meets the required admin level.
-
-    Only the hardcoded BOT_OWNER_ID automatically bypasses this check.
-    Everyone else - including the guild owner and members with
-    Administrator permission - is checked strictly against MongoDB.
-    """
     if BOT_OWNER_ID and str(user_id) == str(BOT_OWNER_ID):
         return True
 
-    level = await db.get_admin_level(user_id)
+    if guild is None:
+        return False
+
+    level = await db.get_admin_level(guild.id, user_id)
     return level >= required
 
 

@@ -24,7 +24,6 @@ class Database:
         self.client = AsyncIOMotorClient(uri)
         self.db = self.client[db_name]
 
-        # Collections
         self.verifications = self.db["verifications"]
         self.admin_levels = self.db["admin_levels"]
         self.groupbinds = self.db["groupbinds"]
@@ -42,7 +41,7 @@ class Database:
         """Create indexes needed for fast lookups. Call once on startup."""
         await self.verifications.create_index("discord_id", unique=True)
         await self.verifications.create_index("roblox_id")
-        await self.admin_levels.create_index("discord_id", unique=True)
+        await self.admin_levels.create_index([("guild_id", 1), ("discord_id", 1)], unique=True)
         await self.groupbinds.create_index("guild_id")
         await self.rankbinds.create_index("guild_id")
         await self.ticket_config.create_index("guild_id", unique=True)
@@ -57,6 +56,8 @@ class Database:
 
     # ============================================================
     # VERIFICATION
+    # (Kept global/per-Discord-user, not per-guild - a person's linked
+    # Roblox account is the same regardless of which server they're in.)
     # ============================================================
     async def get_verification(self, discord_id: int):
         return await self.verifications.find_one({"discord_id": str(discord_id)})
@@ -82,21 +83,22 @@ class Database:
         await self.verifications.delete_one({"discord_id": str(discord_id)})
 
     # ============================================================
-    # ADMIN LEVELS
+    # ADMIN LEVELS (now per-guild - a level in one server no longer
+    # carries over into another server the bot is installed in)
     # ============================================================
-    async def get_admin_level(self, discord_id: int) -> int:
-        doc = await self.admin_levels.find_one({"discord_id": str(discord_id)})
+    async def get_admin_level(self, guild_id: int, discord_id: int) -> int:
+        doc = await self.admin_levels.find_one({"guild_id": str(guild_id), "discord_id": str(discord_id)})
         return doc["level"] if doc else 0
 
-    async def set_admin_level(self, discord_id: int, level: int):
+    async def set_admin_level(self, guild_id: int, discord_id: int, level: int):
         await self.admin_levels.update_one(
-            {"discord_id": str(discord_id)},
-            {"$set": {"discord_id": str(discord_id), "level": level}},
+            {"guild_id": str(guild_id), "discord_id": str(discord_id)},
+            {"$set": {"guild_id": str(guild_id), "discord_id": str(discord_id), "level": level}},
             upsert=True,
         )
 
-    async def remove_admin_level(self, discord_id: int):
-        await self.admin_levels.delete_one({"discord_id": str(discord_id)})
+    async def remove_admin_level(self, guild_id: int, discord_id: int):
+        await self.admin_levels.delete_one({"guild_id": str(guild_id), "discord_id": str(discord_id)})
 
     # ============================================================
     # GROUPBINDS
@@ -121,11 +123,11 @@ class Database:
         return [doc async for doc in cursor]
 
     # ============================================================
-    # RANKBINDS
+    # RANKBINDS (multiple Discord roles can be bound to the same rank)
     # ============================================================
     async def add_rankbind(self, guild_id: int, group_id: int, rank_id: int, role_id: int, rank_name: str = "", nickname_prefix: str = ""):
         await self.rankbinds.update_one(
-            {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id},
+            {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id, "role_id": str(role_id)},
             {"$set": {
                 "guild_id": str(guild_id),
                 "group_id": str(group_id),
@@ -137,10 +139,13 @@ class Database:
             upsert=True,
         )
 
-    async def remove_rankbind(self, guild_id: int, group_id: int, rank_id: int):
-        await self.rankbinds.delete_one(
-            {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id}
-        )
+    async def remove_rankbind(self, guild_id: int, group_id: int, rank_id: int, role_id: int = None):
+        query = {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id}
+        if role_id is not None:
+            query["role_id"] = str(role_id)
+            await self.rankbinds.delete_one(query)
+        else:
+            await self.rankbinds.delete_many(query)
 
     async def list_rankbinds(self, guild_id: int, group_id: int = None):
         query = {"guild_id": str(guild_id)}
@@ -199,7 +204,7 @@ class Database:
         )
 
     # ============================================================
-    # LOG CHANNELS (moderation / rank / update logs)
+    # LOG CHANNELS
     # ============================================================
     async def get_log_channel(self, guild_id: int, log_type: str):
         config = await self.get_guild_config(guild_id)
@@ -209,7 +214,7 @@ class Database:
         await self.set_guild_config(guild_id, **{f"{log_type}_log_channel_id": str(channel_id)})
 
     # ============================================================
-    # OAUTH STATE (CSRF protection for the verification flow)
+    # OAUTH STATE
     # ============================================================
     async def create_oauth_state(self, state: str, discord_id: int):
         await self.oauth_states.insert_one({

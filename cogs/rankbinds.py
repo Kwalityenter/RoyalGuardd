@@ -3,6 +3,9 @@ cogs/rankbinds.py
 ------------------
 Manage rank -> Discord role bindings per Roblox group, plus an optional
 nickname prefix (e.g. "[OF-8]") applied automatically during role sync.
+
+Multiple Discord roles can be bound to the same Roblox rank - just run
+/rankbind add again with a different role for the same rank_id.
 """
 
 import discord
@@ -63,17 +66,26 @@ class RankBinds(commands.Cog):
         await interaction.followup.send(
             embed=embeds.success_embed(
                 "Rankbind Added",
-                f"Rank **{rank_name}** (`{rank_id}`) in group `{group_id}` now maps to {role.mention}.{extra}"
+                f"Rank **{rank_name}** (`{rank_id}`) in group `{group_id}` now also maps to {role.mention}.{extra}"
             )
         )
 
     @require_level(10)
-    @app_commands.describe(group_id="The Roblox group ID", rank_id="The Roblox rank number to unbind")
-    async def rankbind_remove(self, interaction: discord.Interaction, group_id: int, rank_id: int):
-        await db.remove_rankbind(interaction.guild.id, group_id, rank_id)
-        await interaction.response.send_message(
-            embed=embeds.success_embed("Rankbind Removed", f"Rankbind for rank `{rank_id}` in group `{group_id}` removed.")
-        )
+    @app_commands.describe(
+        group_id="The Roblox group ID",
+        rank_id="The Roblox rank number to unbind",
+        role="Optional: remove only this specific role from the rank (leave blank to remove all roles bound to this rank)",
+    )
+    async def rankbind_remove(self, interaction: discord.Interaction, group_id: int, rank_id: int, role: discord.Role = None):
+        await db.remove_rankbind(interaction.guild.id, group_id, rank_id, role.id if role else None)
+        if role:
+            await interaction.response.send_message(
+                embed=embeds.success_embed("Rankbind Removed", f"{role.mention} removed from rank `{rank_id}` in group `{group_id}`.")
+            )
+        else:
+            await interaction.response.send_message(
+                embed=embeds.success_embed("Rankbind Removed", f"All roles removed from rank `{rank_id}` in group `{group_id}`.")
+            )
 
     @app_commands.describe(group_id="The Roblox group ID to list rankbinds for")
     async def rankbind_list(self, interaction: discord.Interaction, group_id: int):
@@ -83,10 +95,19 @@ class RankBinds(commands.Cog):
                 embed=embeds.info_embed("No Rankbinds", f"No rankbinds found for group `{group_id}`.")
             )
 
-        lines = []
+        # Group by rank so multiple roles for the same rank show together
+        by_rank = {}
         for b in binds:
-            prefix = f" | Nickname: `{b['nickname_prefix']}`" if b.get("nickname_prefix") else ""
-            lines.append(f"• **{b.get('rank_name', 'Rank')}** (`{b['rank_id']}`) → <@&{b['role_id']}>{prefix}")
+            by_rank.setdefault(b["rank_id"], {"rank_name": b.get("rank_name", "Rank"), "roles": []})
+            by_rank[b["rank_id"]]["roles"].append(b)
+
+        lines = []
+        for rank_id, data in sorted(by_rank.items()):
+            role_mentions = []
+            for b in data["roles"]:
+                prefix = f" (`{b['nickname_prefix']}`)" if b.get("nickname_prefix") else ""
+                role_mentions.append(f"<@&{b['role_id']}>{prefix}")
+            lines.append(f"**{data['rank_name']}** (`{rank_id}`) → {', '.join(role_mentions)}")
 
         await interaction.response.send_message(embed=embeds.info_embed(f"Rankbinds for {group_id}", "\n".join(lines)))
 
