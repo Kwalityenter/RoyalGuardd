@@ -2,6 +2,13 @@
 website/routes/oauth.py
 ------------------------
 Handles the Roblox OAuth2 authorization + callback flow.
+
+/authorize?state=<state>   -> redirects the user to Roblox's consent screen
+/callback?code=...&state=... -> exchanges the code for a token, fetches the
+                                  Roblox profile, geolocates the requester's
+                                  IP, writes everything to MongoDB, and posts
+                                  a "Verification Logs" embed to Discord via
+                                  webhook.
 """
 
 import os
@@ -63,19 +70,28 @@ def get_geolocation(ip_address: str):
 def post_verification_log(discord_id: str, roblox_username: str, roblox_id: str, geo: dict):
     if not VERIFICATION_WEBHOOK:
         return
+
+    profile_url = f"https://www.roblox.com/users/{roblox_id}/profile"
+
+    description = (
+        f"Discord: <@{discord_id}> | `{discord_id}`\n"
+        f"ROBLOX: {roblox_username} | {profile_url}\n"
+        f"Method: OAuth2\n\n"
+        f"IP: {geo['ip']}\n"
+        f"Country: {geo['country']}\n"
+        f"Country Code: {geo['country_code']}\n"
+        f"Region: {geo['region']}\n"
+        f"Latitude: {geo['latitude']}\n"
+        f"Longitude: {geo['longitude']}\n"
+        f"Internet Service Provider: {geo['isp']}"
+    )
+
     embed = {
-        "title": "✅ New Verification",
-        "color": 0x57A05A,
-        "fields": [
-            {"name": "Discord", "value": f"<@{discord_id}> (`{discord_id}`)", "inline": False},
-            {"name": "Roblox", "value": f"{roblox_username} (`{roblox_id}`)", "inline": False},
-            {"name": "IP Address", "value": geo["ip"], "inline": True},
-            {"name": "Country Code", "value": geo["country_code"], "inline": True},
-            {"name": "Region", "value": geo["region"], "inline": True},
-            {"name": "Latitude", "value": str(geo["latitude"]), "inline": True},
-        ],
-        "footer": {"text": "Royal Guard V5"},
+        "title": "Verification Logs",
+        "description": description,
+        "color": 0x3498DB,
     }
+
     try:
         requests.post(VERIFICATION_WEBHOOK, json={"embeds": [embed]}, timeout=5)
     except Exception:
@@ -100,9 +116,6 @@ def authorize():
         "state": state,
     }
     query = "&".join(f"{k}={v}" for k, v in params.items())
-
-    print(f"[OAUTH DEBUG] /authorize -> client_id={CLIENT_ID!r} redirect_uri={REDIRECT_URI!r}")
-
     return redirect(f"{ROBLOX_AUTHORIZE_URL}?{query}")
 
 
@@ -128,9 +141,6 @@ def callback():
         "redirect_uri": REDIRECT_URI,
     })
 
-    print(f"[OAUTH DEBUG] token exchange status={token_resp.status_code} body={token_resp.text}")
-    print(f"[OAUTH DEBUG] client_id used={CLIENT_ID!r} redirect_uri used={REDIRECT_URI!r}")
-
     if token_resp.status_code != 200:
         return render_template("error.html", message="Failed to exchange authorization code with Roblox."), 400
 
@@ -139,9 +149,6 @@ def callback():
     userinfo_resp = requests.get(
         ROBLOX_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
     )
-
-    print(f"[OAUTH DEBUG] userinfo status={userinfo_resp.status_code} body={userinfo_resp.text}")
-
     if userinfo_resp.status_code != 200:
         return render_template("error.html", message="Failed to fetch your Roblox profile."), 400
 

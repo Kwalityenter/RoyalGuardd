@@ -36,6 +36,10 @@ class Database:
         self.reaction_roles = self.db["reaction_roles"]
         self.invites = self.db["invites"]
         self.invite_credits = self.db["invite_credits"]
+        self.automod_config = self.db["automod_config"]
+        self.antinuke_config = self.db["antinuke_config"]
+        self.antinuke_whitelist = self.db["antinuke_whitelist"]
+        self.action_tracking = self.db["action_tracking"]
 
     async def ensure_indexes(self):
         """Create indexes needed for fast lookups. Call once on startup."""
@@ -48,16 +52,19 @@ class Database:
         await self.tickets.create_index("channel_id", unique=True)
         await self.guild_config.create_index("guild_id", unique=True)
         await self.oauth_states.create_index("state", unique=True)
-        await self.oauth_states.create_index("created_at", expireAfterSeconds=600)
+        await self.oauth_states.create_index("created_at", expireAfterSeconds=120)
         await self.rank_requests.create_index("status")
         await self.reaction_roles.create_index("message_id")
         await self.invites.create_index([("guild_id", 1), ("code", 1)], unique=True)
         await self.invite_credits.create_index([("guild_id", 1), ("inviter_id", 1)], unique=True)
+        await self.automod_config.create_index("guild_id", unique=True)
+        await self.antinuke_config.create_index("guild_id", unique=True)
+        await self.antinuke_whitelist.create_index([("guild_id", 1), ("user_id", 1)], unique=True)
+        await self.action_tracking.create_index([("guild_id", 1), ("user_id", 1), ("action_type", 1)])
+        await self.action_tracking.create_index("timestamp", expireAfterSeconds=60)
 
     # ============================================================
     # VERIFICATION
-    # (Kept global/per-Discord-user, not per-guild - a person's linked
-    # Roblox account is the same regardless of which server they're in.)
     # ============================================================
     async def get_verification(self, discord_id: int):
         return await self.verifications.find_one({"discord_id": str(discord_id)})
@@ -83,8 +90,7 @@ class Database:
         await self.verifications.delete_one({"discord_id": str(discord_id)})
 
     # ============================================================
-    # ADMIN LEVELS (now per-guild - a level in one server no longer
-    # carries over into another server the bot is installed in)
+    # ADMIN LEVELS (per-guild)
     # ============================================================
     async def get_admin_level(self, guild_id: int, discord_id: int) -> int:
         doc = await self.admin_levels.find_one({"guild_id": str(guild_id), "discord_id": str(discord_id)})
@@ -123,7 +129,7 @@ class Database:
         return [doc async for doc in cursor]
 
     # ============================================================
-    # RANKBINDS (multiple Discord roles can be bound to the same rank)
+    # RANKBINDS (multiple roles per rank supported)
     # ============================================================
     async def add_rankbind(self, guild_id: int, group_id: int, rank_id: int, role_id: int, rank_name: str = "", nickname_prefix: str = ""):
         await self.rankbinds.update_one(
@@ -190,7 +196,7 @@ class Database:
         return await self.tickets.find_one({"channel_id": str(channel_id)})
 
     # ============================================================
-    # GUILD CONFIG (generic key/value settings per guild)
+    # GUILD CONFIG
     # ============================================================
     async def get_guild_config(self, guild_id: int):
         return await self.guild_config.find_one({"guild_id": str(guild_id)}) or {}
@@ -348,6 +354,65 @@ class Database:
     async def get_invite_leaderboard(self, guild_id: int, limit: int = 10):
         cursor = self.invite_credits.find({"guild_id": str(guild_id)}).sort("count", -1).limit(limit)
         return [doc async for doc in cursor]
+
+    # ============================================================
+    # AUTOMOD
+    # ============================================================
+    async def get_automod_config(self, guild_id: int):
+        return await self.automod_config.find_one({"guild_id": str(guild_id)}) or {}
+
+    async def set_automod_config(self, guild_id: int, **kwargs):
+        kwargs["guild_id"] = str(guild_id)
+        await self.automod_config.update_one(
+            {"guild_id": str(guild_id)},
+            {"$set": kwargs},
+            upsert=True,
+        )
+
+    # ============================================================
+    # ANTI-NUKE
+    # ============================================================
+    async def get_antinuke_config(self, guild_id: int):
+        return await self.antinuke_config.find_one({"guild_id": str(guild_id)}) or {}
+
+    async def set_antinuke_config(self, guild_id: int, **kwargs):
+        kwargs["guild_id"] = str(guild_id)
+        await self.antinuke_config.update_one(
+            {"guild_id": str(guild_id)},
+            {"$set": kwargs},
+            upsert=True,
+        )
+
+    async def add_antinuke_whitelist(self, guild_id: int, user_id: int):
+        await self.antinuke_whitelist.update_one(
+            {"guild_id": str(guild_id), "user_id": str(user_id)},
+            {"$set": {"guild_id": str(guild_id), "user_id": str(user_id)}},
+            upsert=True,
+        )
+
+    async def remove_antinuke_whitelist(self, guild_id: int, user_id: int):
+        await self.antinuke_whitelist.delete_one({"guild_id": str(guild_id), "user_id": str(user_id)})
+
+    async def is_antinuke_whitelisted(self, guild_id: int, user_id: int) -> bool:
+        doc = await self.antinuke_whitelist.find_one({"guild_id": str(guild_id), "user_id": str(user_id)})
+        return doc is not None
+
+    async def record_action(self, guild_id: int, user_id: int, action_type: str):
+        await self.action_tracking.insert_one({
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+            "action_type": action_type,
+            "timestamp": time.time(),
+        })
+
+    async def count_recent_actions(self, guild_id: int, user_id: int, action_type: str, window_seconds: int = 60) -> int:
+        cutoff = time.time() - window_seconds
+        return await self.action_tracking.count_documents({
+            "guild_id": str(guild_id),
+            "user_id": str(user_id),
+            "action_type": action_type,
+            "timestamp": {"$gte": cutoff},
+        })
 
 
 # Global singleton, initialized in main.py

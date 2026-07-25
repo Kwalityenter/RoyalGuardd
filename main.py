@@ -44,6 +44,8 @@ COGS = [
     "cogs.rankrequest",
     "cogs.reactionroles",
     "cogs.invites",
+    "cogs.automod",
+    "cogs.antinuke",
 ]
 
 
@@ -76,13 +78,6 @@ class RoyalGuardBot(commands.Bot):
             self.add_view(RankRequestView(req["_id"]))
         log.info(f"Re-registered {len(pending_requests)} pending rank request views.")
 
-        # NOTE ON MULTI-SERVER SUPPORT:
-        # DEV_GUILD_ID, if set, syncs slash commands instantly to ONLY that
-        # one guild - useful while actively testing changes. Once you're
-        # ready for the bot to work across multiple servers, remove
-        # DEV_GUILD_ID from Railway's environment variables entirely; the
-        # bot will then sync commands globally (available in every server
-        # it's in), though global syncs can take up to an hour to propagate.
         dev_guild_id = os.getenv("DEV_GUILD_ID")
         if dev_guild_id:
             guild = discord.Object(id=int(dev_guild_id))
