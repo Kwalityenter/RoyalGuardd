@@ -42,26 +42,40 @@ class Database:
         self.action_tracking = self.db["action_tracking"]
 
     async def ensure_indexes(self):
-        """Create indexes needed for fast lookups. Call once on startup."""
-        await self.verifications.create_index("discord_id", unique=True)
-        await self.verifications.create_index("roblox_id")
-        await self.admin_levels.create_index([("guild_id", 1), ("discord_id", 1)], unique=True)
-        await self.groupbinds.create_index("guild_id")
-        await self.rankbinds.create_index("guild_id")
-        await self.ticket_config.create_index("guild_id", unique=True)
-        await self.tickets.create_index("channel_id", unique=True)
-        await self.guild_config.create_index("guild_id", unique=True)
-        await self.oauth_states.create_index("state", unique=True)
-        await self.oauth_states.create_index("created_at", expireAfterSeconds=120)
-        await self.rank_requests.create_index("status")
-        await self.reaction_roles.create_index("message_id")
-        await self.invites.create_index([("guild_id", 1), ("code", 1)], unique=True)
-        await self.invite_credits.create_index([("guild_id", 1), ("inviter_id", 1)], unique=True)
-        await self.automod_config.create_index("guild_id", unique=True)
-        await self.antinuke_config.create_index("guild_id", unique=True)
-        await self.antinuke_whitelist.create_index([("guild_id", 1), ("user_id", 1)], unique=True)
-        await self.action_tracking.create_index([("guild_id", 1), ("user_id", 1), ("action_type", 1)])
-        await self.action_tracking.create_index("timestamp", expireAfterSeconds=60)
+        """Create indexes needed for fast lookups. Call once on startup.
+
+        Wrapped in try/except per-index so a pre-existing index with
+        different options (e.g. a changed TTL value) logs a warning
+        instead of crashing the whole bot on startup.
+        """
+        import logging
+        log = logging.getLogger("RoyalGuard")
+
+        async def _safe_create_index(collection, *args, **kwargs):
+            try:
+                await collection.create_index(*args, **kwargs)
+            except Exception as e:
+                log.warning(f"Index creation skipped/failed for {collection.name}: {e}")
+
+        await _safe_create_index(self.verifications, "discord_id", unique=True)
+        await _safe_create_index(self.verifications, "roblox_id")
+        await _safe_create_index(self.admin_levels, [("guild_id", 1), ("discord_id", 1)], unique=True)
+        await _safe_create_index(self.groupbinds, "guild_id")
+        await _safe_create_index(self.rankbinds, "guild_id")
+        await _safe_create_index(self.ticket_config, "guild_id", unique=True)
+        await _safe_create_index(self.tickets, "channel_id", unique=True)
+        await _safe_create_index(self.guild_config, "guild_id", unique=True)
+        await _safe_create_index(self.oauth_states, "state", unique=True)
+        await _safe_create_index(self.oauth_states, "created_at", expireAfterSeconds=120)
+        await _safe_create_index(self.rank_requests, "status")
+        await _safe_create_index(self.reaction_roles, "message_id")
+        await _safe_create_index(self.invites, [("guild_id", 1), ("code", 1)], unique=True)
+        await _safe_create_index(self.invite_credits, [("guild_id", 1), ("inviter_id", 1)], unique=True)
+        await _safe_create_index(self.automod_config, "guild_id", unique=True)
+        await _safe_create_index(self.antinuke_config, "guild_id", unique=True)
+        await _safe_create_index(self.antinuke_whitelist, [("guild_id", 1), ("user_id", 1)], unique=True)
+        await _safe_create_index(self.action_tracking, [("guild_id", 1), ("user_id", 1), ("action_type", 1)])
+        await _safe_create_index(self.action_tracking, "timestamp", expireAfterSeconds=60)
 
     # ============================================================
     # VERIFICATION
@@ -159,6 +173,17 @@ class Database:
             query["group_id"] = str(group_id)
         cursor = self.rankbinds.find(query)
         return [doc async for doc in cursor]
+
+    async def set_rankbind_prefix(self, guild_id: int, group_id: int, rank_id: int, nickname_prefix: str):
+        """Updates nickname_prefix on every rankbind document for a given
+        rank, without touching which roles are bound. Useful for fixing
+        prefixes on rankbinds created via /rankbind autobind, which don't
+        set a prefix by default."""
+        result = await self.rankbinds.update_many(
+            {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id},
+            {"$set": {"nickname_prefix": nickname_prefix}},
+        )
+        return result.modified_count
 
     # ============================================================
     # TICKET CONFIG / TICKETS
