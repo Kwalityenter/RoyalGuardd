@@ -4,8 +4,10 @@ cogs/rankbinds.py
 Manage rank -> Discord role bindings per Roblox group, plus an optional
 nickname prefix (e.g. "[OF-8]") applied automatically during role sync.
 
-Multiple Discord roles can be bound to the same Roblox rank - just run
-/rankbind add again with a different role for the same rank_id.
+/rankbind add accepts up to 5 roles in a single call, so binding multiple
+Discord roles to the same Roblox rank doesn't require running the command
+repeatedly. Any additional roles beyond 5 can still be added with a
+follow-up /rankbind add call - they simply add to what's already bound.
 """
 
 import discord
@@ -28,7 +30,7 @@ class RankBinds(commands.Cog):
         self.group = RankBindGroup()
 
         self.group.add_command(
-            app_commands.Command(name="add", description="Bind a Roblox rank to a Discord role.",
+            app_commands.Command(name="add", description="Bind a Roblox rank to one or more Discord roles.",
                                   callback=self.rankbind_add)
         )
         self.group.add_command(
@@ -46,6 +48,10 @@ class RankBinds(commands.Cog):
         group_id="The Roblox group ID",
         rank_id="The Roblox rank number (1-255) to bind",
         role="The Discord role to assign for this rank",
+        role2="Optional: a second role to bind to the same rank",
+        role3="Optional: a third role to bind to the same rank",
+        role4="Optional: a fourth role to bind to the same rank",
+        role5="Optional: a fifth role to bind to the same rank",
         nickname_prefix="Optional nickname prefix, e.g. '[OF-8]' (leave blank for none)",
     )
     async def rankbind_add(
@@ -54,19 +60,28 @@ class RankBinds(commands.Cog):
         group_id: int,
         rank_id: int,
         role: discord.Role,
+        role2: discord.Role = None,
+        role3: discord.Role = None,
+        role4: discord.Role = None,
+        role5: discord.Role = None,
         nickname_prefix: str = "",
     ):
         await interaction.response.defer(ephemeral=True)
 
-        roles = await roblox.get_group_roles(group_id)
-        rank_name = next((r["name"] for r in roles if r["rank"] == rank_id), f"Rank {rank_id}")
+        roles_to_bind = [r for r in [role, role2, role3, role4, role5] if r is not None]
 
-        await db.add_rankbind(interaction.guild.id, group_id, rank_id, role.id, rank_name, nickname_prefix)
+        role_info = await roblox.get_group_roles(group_id)
+        rank_name = next((r["name"] for r in role_info if r["rank"] == rank_id), f"Rank {rank_id}")
+
+        for r in roles_to_bind:
+            await db.add_rankbind(interaction.guild.id, group_id, rank_id, r.id, rank_name, nickname_prefix)
+
+        role_mentions = ", ".join(r.mention for r in roles_to_bind)
         extra = f" Nickname prefix: `{nickname_prefix}`." if nickname_prefix else ""
         await interaction.followup.send(
             embed=embeds.success_embed(
                 "Rankbind Added",
-                f"Rank **{rank_name}** (`{rank_id}`) in group `{group_id}` now also maps to {role.mention}.{extra}"
+                f"Rank **{rank_name}** (`{rank_id}`) in group `{group_id}` now maps to {role_mentions}.{extra}"
             )
         )
 
@@ -95,7 +110,6 @@ class RankBinds(commands.Cog):
                 embed=embeds.info_embed("No Rankbinds", f"No rankbinds found for group `{group_id}`.")
             )
 
-        # Group by rank so multiple roles for the same rank show together
         by_rank = {}
         for b in binds:
             by_rank.setdefault(b["rank_id"], {"rank_name": b.get("rank_name", "Rank"), "roles": []})
@@ -113,4 +127,4 @@ class RankBinds(commands.Cog):
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(RankBinds(bot))
+    await bot.add_cog(RankBinds(bot))git add cogs/rankbinds.py
