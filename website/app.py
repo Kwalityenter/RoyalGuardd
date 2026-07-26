@@ -8,7 +8,7 @@ verification data written here is instantly visible to the bot.
 """
 
 import os
-from flask import Flask
+from flask import Flask, render_template
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,12 +22,22 @@ app.register_blueprint(oauth_bp)
 
 @app.route("/")
 def index():
-    return {"status": "ok", "service": "Royal Guard OAuth Website"}
+    return render_template("index.html")
 
 
 @app.route("/health")
 def health():
     return {"status": "healthy"}
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return render_template("error.html", message="That page doesn't exist."), 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    return render_template("error.html", message="Something went wrong on our end. Please try again."), 500
 
 
 if __name__ == "__main__":
