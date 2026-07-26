@@ -12,7 +12,7 @@ BOT_VERSION = "V2"
 
 BOT_ICON_URL = os.getenv(
     "BOT_ICON_URL",
-    "https://i.imgur.com/ILUPJLN.png"
+    "https://i.imgur.com/ILUPJLN.png"  # Replace with a Canadian Army-themed crest
 )
 
 EMBED_COLOR = 0x87CEEB
@@ -27,7 +27,7 @@ FOOTER_ICON = BOT_ICON_URL
 AUTHOR_TEXT = BOT_NAME
 AUTHOR_ICON = BOT_ICON_URL
 
-VERIFICATION_PANEL_TITLE = "Canadian ARMY VERIFICATION SYSTEM V2"
+VERIFICATION_PANEL_TITLE = "CANADIAN ARMY VERIFICATION SYSTEM V2"
 VERIFICATION_PANEL_DESCRIPTION = (
     "Press the **Verify / Reverify** button to verify or reverify your ROBLOX account."
 )

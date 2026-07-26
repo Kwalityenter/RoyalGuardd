@@ -16,6 +16,9 @@ Flow:
 4. Website handles the Roblox OAuth2 code exchange and calls back into
    MongoDB directly (see website/routes/oauth.py) storing the link
 5. User clicks "Update Roles" (or runs /update) to sync roles immediately
+
+All panel/embed titles are pulled from config/settings.py (VERIFICATION_PANEL_TITLE)
+rather than hardcoded here, so rebranding only ever requires editing settings.py.
 """
 
 import os
@@ -27,14 +30,14 @@ from discord.ext import commands
 from database.mongodb import db
 from utils import embeds
 from cogs.update import sync_member_roles
+from config import settings
 
 WEBSITE_BASE_URL = os.getenv("WEBSITE_BASE_URL", "https://your-railway-app.up.railway.app")
 
 
 def _begin_verification_embed_and_view(oauth_url: str) -> tuple[discord.Embed, discord.ui.View]:
-    title = "BRITISH ARMY VERIFICATION SYSTEM V5"
     embed = embeds.info_embed(
-        title,
+        settings.VERIFICATION_PANEL_TITLE,
         "Click on the button below to begin verification process\n\n"
         "**Please DO NOT share this link with anyone**\n\n"
         "This link expires in **2 minutes** or once the verification process begins."
@@ -91,7 +94,7 @@ class ConfirmAccountView(discord.ui.View):
     @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
     async def confirm_yes(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = embeds.warning_embed(
-            "BRITISH ARMY VERIFICATION SYSTEM V5",
+            settings.VERIFICATION_PANEL_TITLE,
             "You are already verified. If you wish to retrieve new roles or update yourself, "
             "please use the button below."
         )
@@ -124,7 +127,7 @@ class VerificationView(discord.ui.View):
             profile_url = f"https://www.roblox.com/users/{roblox_id}/profile"
 
             embed = embeds.info_embed(
-                "BRITISH ARMY VERIFICATION SYSTEM V5",
+                settings.VERIFICATION_PANEL_TITLE,
                 f"Is this your ROBLOX account?\n\n"
                 f"ROBLOX Username: [{roblox_username}]({profile_url})\n"
                 f"ROBLOX Profile: {profile_url}"
@@ -187,7 +190,7 @@ class Verification(commands.Cog):
             profile_url = f"https://www.roblox.com/users/{roblox_id}/profile"
 
             embed = embeds.info_embed(
-                "BRITISH ARMY VERIFICATION SYSTEM V5",
+                settings.VERIFICATION_PANEL_TITLE,
                 f"Is this your ROBLOX account?\n\n"
                 f"ROBLOX Username: [{roblox_username}]({profile_url})\n"
                 f"ROBLOX Profile: {profile_url}"
