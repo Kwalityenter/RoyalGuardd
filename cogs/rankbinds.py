@@ -6,13 +6,19 @@ nickname prefix (e.g. "[OF-8]") applied automatically during role sync.
 
 /rankbind add accepts up to 5 roles in a single call, so binding multiple
 Discord roles to the same Roblox rank doesn't require running the command
-repeatedly. Any additional roles beyond 5 can still be added with a
-follow-up /rankbind add call - they simply add to what's already bound.
+repeatedly.
+
+/rankbind autobind bulk-creates one Discord role per Roblox rank in a
+group (skipping Guest/rank 0) and binds each automatically - these are
+the "sticky" base roles for that rank hierarchy. After running autobind,
+use /rankbind add with the same group_id/rank_id to layer additional
+optional roles onto any specific rank without touching the others.
 """
 
 import discord
 from discord import app_commands
 from discord.ext import commands
+import asyncio
 
 from database.mongodb import db
 from utils import embeds, roblox
@@ -40,6 +46,10 @@ class RankBinds(commands.Cog):
         self.group.add_command(
             app_commands.Command(name="list", description="List rankbinds for a group.",
                                   callback=self.rankbind_list)
+        )
+        self.group.add_command(
+            app_commands.Command(name="autobind", description="Auto-create and bind a sticky Discord role for every rank in a group.",
+                                  callback=self.rankbind_autobind)
         )
         bot.tree.add_command(self.group)
 
@@ -84,6 +94,96 @@ class RankBinds(commands.Cog):
                 f"Rank **{rank_name}** (`{rank_id}`) in group `{group_id}` now maps to {role_mentions}.{extra}"
             )
         )
+
+    @require_level(30)
+    @app_commands.describe(
+        group_id="The Roblox group ID to auto-bind ranks for",
+        create_missing_roles="Create a Discord role for any rank that doesn't already have a matching-named role (default: true)",
+        role_color="Hex color for newly created roles, e.g. FF0000 (leave blank for Discord's default)",
+    )
+    async def rankbind_autobind(
+        self,
+        interaction: discord.Interaction,
+        group_id: int,
+        create_missing_roles: bool = True,
+        role_color: str = None,
+    ):
+        await interaction.response.defer(ephemeral=True)
+
+        group_info = await roblox.get_group_info(group_id)
+        if not group_info:
+            return await interaction.followup.send(
+                embed=embeds.error_embed("Group Not Found", f"Could not find a Roblox group with ID `{group_id}`.")
+            )
+        group_name = group_info.get("name", "Unknown Group")
+
+        roblox_roles = await roblox.get_group_roles(group_id)
+        roblox_roles = [r for r in roblox_roles if r["rank"] != 0]  # skip Guest
+
+        if not roblox_roles:
+            return await interaction.followup.send(
+                embed=embeds.error_embed("No Ranks Found", "Could not find any ranks (above Guest) in that group.")
+            )
+
+        color = discord.Color.default()
+        if role_color:
+            try:
+                color = discord.Color(int(role_color.strip("#"), 16))
+            except ValueError:
+                return await interaction.followup.send(
+                    embed=embeds.error_embed("Invalid Color", "Provide role_color as a hex value, e.g. `FF0000`.")
+                )
+
+        # Ensure the group is bound so /update, /setrank etc. recognize it
+        await db.add_groupbind(interaction.guild.id, group_id, group_name)
+
+        existing_role_names = {r.name.lower(): r for r in interaction.guild.roles}
+        created, reused, bound, skipped = [], [], [], []
+
+        for rb_role in roblox_roles:
+            rank_id = rb_role["rank"]
+            rank_name = rb_role["name"]
+
+            existing_binds = await db.list_rankbinds(interaction.guild.id, group_id)
+            already_has_bind_for_this_rank = any(b["rank_id"] == rank_id for b in existing_binds)
+            if already_has_bind_for_this_rank:
+                skipped.append(rank_name)
+                continue
+
+            discord_role = existing_role_names.get(rank_name.lower())
+
+            if discord_role:
+                reused.append(rank_name)
+            elif create_missing_roles:
+                try:
+                    discord_role = await interaction.guild.create_role(
+                        name=rank_name,
+                        color=color,
+                        reason=f"Autobind: Roblox rank {rank_id} in group {group_id}",
+                    )
+                    created.append(rank_name)
+                    await asyncio.sleep(0.5)  # gentle pacing to avoid rate limits on bulk role creation
+                except discord.Forbidden:
+                    skipped.append(f"{rank_name} (missing Manage Roles permission)")
+                    continue
+            else:
+                skipped.append(f"{rank_name} (no matching role, creation disabled)")
+                continue
+
+            await db.add_rankbind(interaction.guild.id, group_id, rank_id, discord_role.id, rank_name, "")
+            bound.append(f"{rank_name} → {discord_role.mention}")
+
+        summary = f"**Group:** {group_name}\n\n"
+        if bound:
+            summary += "**Bound:**\n" + "\n".join(bound[:20])
+            if len(bound) > 20:
+                summary += f"\n...and {len(bound) - 20} more"
+        else:
+            summary += "Nothing new was bound."
+        if skipped:
+            summary += f"\n\n**Skipped:** {len(skipped)} rank(s) (already bound or blocked)"
+
+        await interaction.followup.send(embed=embeds.success_embed("Autobind Complete", summary))
 
     @require_level(10)
     @app_commands.describe(
