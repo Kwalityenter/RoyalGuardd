@@ -19,6 +19,10 @@ Flow:
 
 All panel/embed titles are pulled from config/settings.py (VERIFICATION_PANEL_TITLE)
 rather than hardcoded here, so rebranding only ever requires editing settings.py.
+
+All responses in this cog are ephemeral - note that deferring with
+ephemeral=True does NOT make a later followup.send() ephemeral automatically;
+every followup call below explicitly passes ephemeral=True as well.
 """
 
 import os
@@ -68,7 +72,8 @@ class AlreadyVerifiedUpdateView(discord.ui.View):
         verification = await db.get_verification(interaction.user.id)
         if not verification:
             return await interaction.followup.send(
-                embed=embeds.error_embed("Not Verified", "You need to verify your Roblox account first.")
+                embed=embeds.error_embed("Not Verified", "You need to verify your Roblox account first."),
+                ephemeral=True,
             )
 
         added, removed, _ = await sync_member_roles(interaction.guild, interaction.user, int(verification["roblox_id"]))
@@ -79,7 +84,7 @@ class AlreadyVerifiedUpdateView(discord.ui.View):
         if removed:
             desc += f"\n**Removed:** {', '.join(removed)}"
 
-        await interaction.followup.send(embed=embeds.success_embed("Roles Updated", desc))
+        await interaction.followup.send(embed=embeds.success_embed("Roles Updated", desc), ephemeral=True)
 
 
 class ConfirmAccountView(discord.ui.View):
@@ -163,7 +168,8 @@ class VerificationView(discord.ui.View):
         verification = await db.get_verification(interaction.user.id)
         if not verification:
             return await interaction.followup.send(
-                embed=embeds.error_embed("Not Verified", "You need to verify your Roblox account first.")
+                embed=embeds.error_embed("Not Verified", "You need to verify your Roblox account first."),
+                ephemeral=True,
             )
 
         added, removed, _ = await sync_member_roles(interaction.guild, interaction.user, int(verification["roblox_id"]))
@@ -174,7 +180,7 @@ class VerificationView(discord.ui.View):
         if removed:
             desc += f"\n**Removed:** {', '.join(removed)}"
 
-        await interaction.followup.send(embed=embeds.success_embed("Roles Updated", desc))
+        await interaction.followup.send(embed=embeds.success_embed("Roles Updated", desc), ephemeral=True)
 
 
 class Verification(commands.Cog):
