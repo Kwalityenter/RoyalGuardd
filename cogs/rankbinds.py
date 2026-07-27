@@ -4,13 +4,17 @@ cogs/rankbinds.py
 Manage rank -> Discord role bindings per Roblox group, plus an optional
 nickname prefix (e.g. "[OF-8]") applied automatically during role sync.
 
-/rankbind add    - bind up to 5 roles to a rank in one call. Both group_id
-                   and rank_id autocomplete: group_id suggests your bound
-                   groups by name, and rank_id (once a group is picked)
-                   suggests real rank names pulled live from Roblox - no
-                   need to memorize rank numbers.
-/rankbind remove - unbind a role (or all roles) from a rank
-/rankbind list    - list current bindings for a group
+/rankbind add        - bind up to 5 roles to a rank in one call. group_id
+                       and rank_id both autocomplete by name once a group
+                       is chosen.
+/rankbind remove     - unbind a role (or all roles) from a rank
+/rankbind removebulk - remove every rankbind for a group at once, or every
+                       rankbind tied to a specific Discord role across all
+                       ranks/groups
+/rankbind list        - list current bindings for a group, paginated so
+                       large lists never exceed Discord's embed limits
+/rankbind findrole    - look up which rank(s) a given Discord role is
+                       bound to, by role ID/mention instead of by rank name
 """
 
 import discord
@@ -20,6 +24,65 @@ from discord.ext import commands
 from database.mongodb import db
 from utils import embeds, roblox
 from utils.permissions import require_level
+
+MAX_LINES_PER_PAGE = 15
+
+
+def _format_rankbind_lines(binds: list) -> list:
+    """Groups rankbind documents by rank and returns one formatted line per rank."""
+    by_rank = {}
+    for b in binds:
+        by_rank.setdefault(b["rank_id"], {"rank_name": b.get("rank_name", "Rank"), "roles": []})
+        by_rank[b["rank_id"]]["roles"].append(b)
+
+    lines = []
+    for rank_id, data in sorted(by_rank.items()):
+        role_mentions = []
+        for b in data["roles"]:
+            prefix = f" (`{b['nickname_prefix']}`)" if b.get("nickname_prefix") else ""
+            role_mentions.append(f"<@&{b['role_id']}>{prefix}")
+        lines.append(f"**{data['rank_name']}** (`{rank_id}`) → {', '.join(role_mentions)}")
+    return lines
+
+
+class RankbindListView(discord.ui.View):
+    def __init__(self, title: str, pages: list[str], executor_id: int):
+        super().__init__(timeout=120)
+        self.title = title
+        self.pages = pages
+        self.current = 0
+        self.executor_id = executor_id
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.previous_page.disabled = self.current == 0
+        self.next_page.disabled = self.current == len(self.pages) - 1
+
+    def _embed(self):
+        embed = embeds.info_embed(self.title, self.pages[self.current])
+        embed.set_footer(text=f"Page {self.current + 1}/{len(self.pages)}")
+        return embed
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.executor_id:
+            await interaction.response.send_message(
+                embed=embeds.error_embed("Not Allowed", "Only the command executor can page through this list."),
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="◀ Previous", style=discord.ButtonStyle.secondary)
+    async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current -= 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._embed(), view=self)
+
+    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current += 1
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self._embed(), view=self)
 
 
 class RankBindGroup(app_commands.Group):
@@ -41,8 +104,16 @@ class RankBinds(commands.Cog):
                                   callback=self.rankbind_remove)
         )
         self.group.add_command(
+            app_commands.Command(name="removebulk", description="Remove multiple rankbinds at once.",
+                                  callback=self.rankbind_removebulk)
+        )
+        self.group.add_command(
             app_commands.Command(name="list", description="List rankbinds for a group.",
                                   callback=self.rankbind_list)
+        )
+        self.group.add_command(
+            app_commands.Command(name="findrole", description="Find which rank(s) a Discord role is bound to.",
+                                  callback=self.rankbind_findrole)
         )
         bot.tree.add_command(self.group)
 
@@ -136,29 +207,79 @@ class RankBinds(commands.Cog):
                 embed=embeds.success_embed("Rankbind Removed", f"All roles removed from rank `{rank_id}` in group `{group_id}`.")
             )
 
+    @require_level(10)
+    @app_commands.describe(
+        group_id="Remove every rankbind for this group (leave blank if using role instead)",
+        role="Remove every rankbind using this specific Discord role, across all groups/ranks (leave blank if using group_id instead)",
+    )
+    @app_commands.autocomplete(group_id=group_autocomplete)
+    async def rankbind_removebulk(self, interaction: discord.Interaction, group_id: int = None, role: discord.Role = None):
+        if group_id is None and role is None:
+            return await interaction.response.send_message(
+                embed=embeds.error_embed("Missing Input", "Provide either `group_id` (to clear a whole group) or `role` (to clear one role everywhere)."),
+                ephemeral=True,
+            )
+
+        await interaction.response.defer(ephemeral=True)
+
+        if group_id is not None:
+            binds = await db.list_rankbinds(interaction.guild.id, group_id)
+            count = len(binds)
+            await db.rankbinds.delete_many({"guild_id": str(interaction.guild.id), "group_id": str(group_id)})
+            await interaction.followup.send(
+                embed=embeds.success_embed("Rankbinds Cleared", f"Removed **{count}** rankbind(s) for group `{group_id}`.")
+            )
+        else:
+            result = await db.rankbinds.delete_many({"guild_id": str(interaction.guild.id), "role_id": str(role.id)})
+            await interaction.followup.send(
+                embed=embeds.success_embed("Rankbinds Cleared", f"Removed **{result.deleted_count}** rankbind(s) using {role.mention}.")
+            )
+
     @app_commands.describe(group_id="The Roblox group (start typing to search your bound groups)")
     @app_commands.autocomplete(group_id=group_autocomplete)
     async def rankbind_list(self, interaction: discord.Interaction, group_id: int):
+        await interaction.response.defer(ephemeral=True)
+
         binds = await db.list_rankbinds(interaction.guild.id, group_id)
         if not binds:
-            return await interaction.response.send_message(
+            return await interaction.followup.send(
                 embed=embeds.info_embed("No Rankbinds", f"No rankbinds found for group `{group_id}`.")
             )
 
-        by_rank = {}
-        for b in binds:
-            by_rank.setdefault(b["rank_id"], {"rank_name": b.get("rank_name", "Rank"), "roles": []})
-            by_rank[b["rank_id"]]["roles"].append(b)
+        lines = _format_rankbind_lines(binds)
+
+        pages = []
+        for i in range(0, len(lines), MAX_LINES_PER_PAGE):
+            pages.append("\n".join(lines[i:i + MAX_LINES_PER_PAGE]))
+
+        if len(pages) == 1:
+            return await interaction.followup.send(embed=embeds.info_embed(f"Rankbinds for {group_id}", pages[0]))
+
+        view = RankbindListView(f"Rankbinds for {group_id}", pages, interaction.user.id)
+        await interaction.followup.send(embed=view._embed(), view=view)
+
+    @app_commands.describe(role="The Discord role to search for across all rankbinds")
+    async def rankbind_findrole(self, interaction: discord.Interaction, role: discord.Role):
+        await interaction.response.defer(ephemeral=True)
+
+        binds = await db.rankbinds.find({
+            "guild_id": str(interaction.guild.id),
+            "role_id": str(role.id),
+        }).to_list(length=100)
+
+        if not binds:
+            return await interaction.followup.send(
+                embed=embeds.info_embed("No Rankbinds Found", f"{role.mention} is not bound to any rank.")
+            )
 
         lines = []
-        for rank_id, data in sorted(by_rank.items()):
-            role_mentions = []
-            for b in data["roles"]:
-                prefix = f" (`{b['nickname_prefix']}`)" if b.get("nickname_prefix") else ""
-                role_mentions.append(f"<@&{b['role_id']}>{prefix}")
-            lines.append(f"**{data['rank_name']}** (`{rank_id}`) → {', '.join(role_mentions)}")
+        for b in binds:
+            prefix = f" (`{b['nickname_prefix']}`)" if b.get("nickname_prefix") else ""
+            lines.append(f"**{b.get('rank_name', 'Rank')}** (`{b['rank_id']}`) in group `{b['group_id']}`{prefix}")
 
-        await interaction.response.send_message(embed=embeds.info_embed(f"Rankbinds for {group_id}", "\n".join(lines)))
+        await interaction.followup.send(
+            embed=embeds.info_embed(f"Rankbinds using {role.name}", "\n".join(lines))
+        )
 
 
 async def setup(bot: commands.Bot):
