@@ -142,7 +142,7 @@ class Database:
         cursor = self.groupbinds.find({"guild_id": str(guild_id)})
         return [doc async for doc in cursor]
 
-    # ============================================================
+   # ============================================================
     # RANKBINDS (multiple roles per rank supported)
     # ============================================================
     async def add_rankbind(self, guild_id: int, group_id: int, rank_id: int, role_id: int, rank_name: str = "", nickname_prefix: str = ""):
@@ -173,17 +173,6 @@ class Database:
             query["group_id"] = str(group_id)
         cursor = self.rankbinds.find(query)
         return [doc async for doc in cursor]
-
-    async def set_rankbind_prefix(self, guild_id: int, group_id: int, rank_id: int, nickname_prefix: str):
-        """Updates nickname_prefix on every rankbind document for a given
-        rank, without touching which roles are bound. Useful for fixing
-        prefixes on rankbinds created via /rankbind autobind, which don't
-        set a prefix by default."""
-        result = await self.rankbinds.update_many(
-            {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id},
-            {"$set": {"nickname_prefix": nickname_prefix}},
-        )
-        return result.modified_count
 
     # ============================================================
     # TICKET CONFIG / TICKETS
