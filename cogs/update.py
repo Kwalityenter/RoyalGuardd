@@ -3,6 +3,13 @@ cogs/update.py
 ---------------
 /update       - syncs the invoking user's roles against all bound groups/ranks
 /updateall    - syncs every verified member in the server (admin level 10+)
+
+sync_member_roles is the shared core: it adds/removes Discord roles based
+on the member's live Roblox rank, and sets their nickname to
+"<prefix> <roblox_username>" using the highest-priority nickname prefix
+from any matched rankbind. If no rankbind for their current rank has a
+prefix set, the nickname is left as just their Roblox username with no
+prefix.
 """
 
 import asyncio
@@ -18,8 +25,8 @@ from config import settings
 
 async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox_id: int):
     """Compares the member's current roles against every rankbind, adds/removes
-    roles as needed, applies the highest-priority nickname prefix, and logs
-    the result. Returns (added, removed, nickname_changed).
+    roles as needed, sets their nickname to "<prefix> <roblox_username>",
+    and logs the result. Returns (added, removed, nickname_changed).
     """
     groupbinds = await db.list_groupbinds(guild.id)
     added, removed = [], []
@@ -54,12 +61,15 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
                 best_prefix = rb["nickname_prefix"]
 
     nickname_changed = False
-    if best_prefix and guild.me.guild_permissions.manage_nicknames and member.id != guild.owner_id:
-        base_name = member.name
-        new_nick = f"{best_prefix} {base_name}"
+    verification = await db.get_verification(member.id)
+    roblox_username = verification["roblox_username"] if verification else member.name
+
+    if guild.me.guild_permissions.manage_nicknames and member.id != guild.owner_id:
+        new_nick = f"{best_prefix} {roblox_username}" if best_prefix else roblox_username
+        new_nick = new_nick[:32]  # Discord nickname length limit
         if member.nick != new_nick:
             try:
-                await member.edit(nick=new_nick[:32], reason="Royal Guard rank sync")
+                await member.edit(nick=new_nick, reason="Royal Guard rank sync")
                 nickname_changed = True
             except discord.Forbidden:
                 pass
