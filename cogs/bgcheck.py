@@ -1,6 +1,6 @@
-"""cogs/bgcheck.py — !bgcheck @user, paginated Discord/Roblox/Group info embed.
-Pagination is done via message REACTIONS (⬅️ / ➡️ / 🗑️), not buttons.
-Bot requires 'Add Reactions' and 'Manage Messages' (to remove other users' reactions) permissions.
+"""cogs/bgcheck.py — !bgcheck @user, paginated Discord/Roblox/Regiment info embed.
+Pagination via message reactions: ⬅️ (previous), ➡️ (next), 🏁 (jump to last page).
+Bot requires 'Add Reactions' and 'Manage Messages' permissions.
 """
 
 import asyncio
@@ -14,7 +14,18 @@ from config import settings
 
 PREV_EMOJI = "⬅️"
 NEXT_EMOJI = "➡️"
-DELETE_EMOJI = "🗑️"
+LAST_EMOJI = "🏁"
+
+DATE_FORMAT = "%a, %d %b %Y %H:%M:%S GMT"
+
+
+def _build_alerts(member: discord.Member) -> str:
+    alerts = []
+    if (datetime.now(timezone.utc) - member.joined_at).days < 7:
+        alerts.append("* [This user is new to our discord server.]")
+    if not alerts:
+        alerts.append("* [No alerts.]")
+    return "\n".join(alerts)
 
 
 class BGCheck(commands.Cog):
@@ -23,77 +34,80 @@ class BGCheck(commands.Cog):
 
     async def _build_pages(self, ctx: commands.Context, member: discord.Member):
         verification = await db.get_verification(member.id)
-        admin_level = await db.get_admin_level(ctx.guild.id, member.id)
+        alerts_text = _build_alerts(member)
 
-        pages = []
+        # Page 1/3 — User Discord Account Details
+        discord_embed = embeds.base_embed()
+        discord_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+        discord_embed.title = "User Discord Account Details"
+        discord_embed.add_field(name="Joined Date", value=member.joined_at.strftime(DATE_FORMAT), inline=False)
+        discord_embed.add_field(name="Registered Date", value=member.created_at.strftime(DATE_FORMAT), inline=False)
+        roles = [r.mention for r in member.roles if r.name != "@everyone"]
+        discord_embed.add_field(name=f"User Roles [{len(roles)}]", value=" ".join(roles) if roles else "None", inline=False)
+        discord_embed.add_field(name="Alerts", value=alerts_text, inline=False)
 
-        discord_embed = embeds.base_embed(title=f"Background Check — {member}")
-        discord_embed.set_thumbnail(url=member.display_avatar.url)
-        discord_embed.add_field(name="Username", value=str(member), inline=True)
-        discord_embed.add_field(name="ID", value=str(member.id), inline=True)
-        discord_embed.add_field(name="Account Created", value=discord.utils.format_dt(member.created_at, style="R"), inline=True)
-        discord_embed.add_field(name="Joined Server", value=discord.utils.format_dt(member.joined_at, style="R") if member.joined_at else "Unknown", inline=True)
-        discord_embed.add_field(name="Verification Status", value="Verified" if verification else "Not Verified", inline=True)
-        label = "Owner (Infinite)" if admin_level >= settings.OWNER_LEVEL else str(admin_level)
-        discord_embed.add_field(name="Admin Level", value=label, inline=True)
+        # Page 2/3 — User ROBLOX Account Details
+        roblox_embed = embeds.base_embed()
+        roblox_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+        roblox_embed.title = "User ROBLOX Account Details"
 
         if verification:
             roblox_id = int(verification["roblox_id"])
             roblox_user = await roblox.get_user_by_id(roblox_id)
             avatar_url = await roblox.get_avatar_headshot_url(roblox_id)
-            is_premium = await roblox.get_premium_status(roblox_id)
             followers = await roblox.get_followers_count(roblox_id)
             following = await roblox.get_following_count(roblox_id)
             friends = await roblox.get_friends_count(roblox_id)
             groups = await roblox.get_user_groups(roblox_id)
 
-            roblox_embed = embeds.base_embed(title=f"Roblox Information — {verification['roblox_username']}")
             if avatar_url:
                 roblox_embed.set_thumbnail(url=avatar_url)
+
             if roblox_user and roblox_user.get("created"):
                 created_dt = datetime.fromisoformat(roblox_user["created"].replace("Z", "+00:00"))
                 age_days = (datetime.now(timezone.utc) - created_dt).days
-                roblox_embed.add_field(name="Account Age", value=f"{age_days} days", inline=True)
-                roblox_embed.add_field(name="Created", value=discord.utils.format_dt(created_dt, style="D"), inline=True)
-            roblox_embed.add_field(name="Roblox ID", value=str(roblox_id), inline=True)
-            roblox_embed.add_field(name="Premium", value="Yes" if is_premium else "No", inline=True)
-            roblox_embed.add_field(name="Followers", value=str(followers), inline=True)
-            roblox_embed.add_field(name="Following", value=str(following), inline=True)
-            roblox_embed.add_field(name="Friends", value=str(friends), inline=True)
+                roblox_embed.add_field(name="ROBLOX Account Age", value=f"{age_days} days", inline=False)
 
-            group_embed = embeds.base_embed(title="Group Information")
-            if groups:
-                lines = [f"**{g['group']['name']}** — {g['role']['name']} (Rank {g['role']['rank']})" for g in groups[:15]]
-                group_embed.description = "\n".join(lines)
-                extra = len(groups) - 15
-            else:
-                group_embed.description = "This user is not in any groups."
-                extra = 0
-
-            pages.extend([discord_embed, roblox_embed, group_embed])
+            description = (roblox_user.get("description") or "").strip() if roblox_user else ""
+            roblox_embed.add_field(name="ROBLOX Account Description", value=description if description else "No description set.", inline=False)
+            roblox_embed.add_field(name="ROBLOX Account Groups", value=str(len(groups)), inline=False)
+            roblox_embed.add_field(name="ROBLOX Account Friends", value=str(friends), inline=False)
+            roblox_embed.add_field(name="ROBLOX Account Followers", value=str(followers), inline=False)
+            roblox_embed.add_field(name="ROBLOX Account Following", value=str(following), inline=False)
+            roblox_embed.add_field(name="ROBLOX Account Gamepasses Owned", value="Not Programmed.", inline=False)
+            roblox_embed.add_field(name="ROBLOX Account Badges Owned", value="Not Programmed.", inline=False)
         else:
-            not_verified_embed = embeds.warning_embed("Roblox Information", "This user has not verified their Roblox account.")
-            pages.extend([discord_embed, not_verified_embed])
-            extra = 0
+            roblox_embed.add_field(name="ROBLOX Account Status", value="This user has not verified their Roblox account.", inline=False)
 
+        roblox_embed.add_field(name="Alerts", value=alerts_text, inline=False)
+
+        # Page 3/3 — User Regiment Details
+        regiment_embed = embeds.base_embed()
+        regiment_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
+        regiment_embed.title = "User Regiment Details"
+        regiments = await db.get_user_regiments(ctx.guild.id, member.id) if hasattr(db, "get_user_regiments") else None
+        if regiments:
+            regiment_embed.add_field(name="Regiments", value="\n".join(regiments), inline=False)
+        else:
+            regiment_embed.add_field(name="\u200b", value="[This user is not in any regiments]", inline=False)
+        regiment_embed.add_field(name="Alerts", value=alerts_text, inline=False)
+
+        pages = [discord_embed, roblox_embed, regiment_embed]
         total = len(pages)
         for i, page in enumerate(pages, start=1):
-            footer_extra = f" | +{extra} more groups" if (i == total and extra) else ""
-            page.set_footer(text=f"{settings.FOOTER_TEXT} | Page {i}/{total}{footer_extra}", icon_url=settings.FOOTER_ICON)
+            page.set_footer(text=f"Viewing Page {i}/{total}")
 
         return pages
 
     @commands.command(name="bgcheck")
     async def bgcheck(self, ctx: commands.Context, member: discord.Member = None):
         member = member or ctx.author
-        loading = embeds.info_embed("Running Background Check", f"Gathering data for {member.mention}...")
-        message = await ctx.send(embed=loading)
 
         pages = await self._build_pages(ctx, member)
         current = 0
-        await message.edit(embed=pages[current])
+        message = await ctx.send(content=f"Hello {member.mention}", embed=pages[current])
 
-        for emoji in (PREV_EMOJI, NEXT_EMOJI, DELETE_EMOJI):
+        for emoji in (PREV_EMOJI, NEXT_EMOJI, LAST_EMOJI):
             try:
                 await message.add_reaction(emoji)
             except discord.HTTPException:
@@ -103,7 +117,7 @@ class BGCheck(commands.Cog):
             return (
                 reaction.message.id == message.id
                 and user.id == ctx.author.id
-                and str(reaction.emoji) in (PREV_EMOJI, NEXT_EMOJI, DELETE_EMOJI)
+                and str(reaction.emoji) in (PREV_EMOJI, NEXT_EMOJI, LAST_EMOJI)
             )
 
         while True:
@@ -123,17 +137,14 @@ class BGCheck(commands.Cog):
             except discord.HTTPException:
                 pass
 
-            if emoji == DELETE_EMOJI:
-                try:
-                    await message.delete()
-                except discord.HTTPException:
-                    pass
-                break
-            elif emoji == NEXT_EMOJI and current < len(pages) - 1:
+            if emoji == NEXT_EMOJI and current < len(pages) - 1:
                 current += 1
                 await message.edit(embed=pages[current])
             elif emoji == PREV_EMOJI and current > 0:
                 current -= 1
+                await message.edit(embed=pages[current])
+            elif emoji == LAST_EMOJI:
+                current = len(pages) - 1
                 await message.edit(embed=pages[current])
 
 
