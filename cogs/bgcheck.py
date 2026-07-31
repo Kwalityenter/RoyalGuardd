@@ -1,6 +1,6 @@
 """cogs/bgcheck.py — !bgcheck @user, paginated Discord/Roblox/Regiment info embed.
-Pagination via message reactions: ⬅️ (previous), ➡️ (next), 🏁 (jump to last page).
-Bot requires 'Add Reactions' and 'Manage Messages' permissions.
+Pagination via message reactions: ⬅️ (previous), ➡️ (next), 🏁 (jump to last page), 🗑️ (delete).
+Auto-deletes after 60s of inactivity. Bot requires 'Add Reactions' and 'Manage Messages' permissions.
 """
 
 import asyncio
@@ -15,6 +15,9 @@ from config import settings
 PREV_EMOJI = "⬅️"
 NEXT_EMOJI = "➡️"
 LAST_EMOJI = "🏁"
+DELETE_EMOJI = "🗑️"
+
+TIMEOUT_SECONDS = 60.0
 
 DATE_FORMAT = "%a, %d %b %Y %H:%M:%S GMT"
 
@@ -103,11 +106,16 @@ class BGCheck(commands.Cog):
     async def bgcheck(self, ctx: commands.Context, member: discord.Member = None):
         member = member or ctx.author
 
+        loading_embed = embeds.base_embed()
+        loading_embed.title = "Background Checking"
+        loading_embed.description = "Please hold on whilst we background check the user."
+        message = await ctx.send(content=f"Hello {member.mention}", embed=loading_embed)
+
         pages = await self._build_pages(ctx, member)
         current = 0
-        message = await ctx.send(content=f"Hello {member.mention}", embed=pages[current])
+        await message.edit(embed=pages[current])
 
-        for emoji in (PREV_EMOJI, NEXT_EMOJI, LAST_EMOJI):
+        for emoji in (PREV_EMOJI, NEXT_EMOJI, LAST_EMOJI, DELETE_EMOJI):
             try:
                 await message.add_reaction(emoji)
             except discord.HTTPException:
@@ -117,20 +125,27 @@ class BGCheck(commands.Cog):
             return (
                 reaction.message.id == message.id
                 and user.id == ctx.author.id
-                and str(reaction.emoji) in (PREV_EMOJI, NEXT_EMOJI, LAST_EMOJI)
+                and str(reaction.emoji) in (PREV_EMOJI, NEXT_EMOJI, LAST_EMOJI, DELETE_EMOJI)
             )
 
         while True:
             try:
-                reaction, user = await self.bot.wait_for("reaction_add", timeout=120.0, check=check)
+                reaction, user = await self.bot.wait_for("reaction_add", timeout=TIMEOUT_SECONDS, check=check)
             except asyncio.TimeoutError:
                 try:
-                    await message.clear_reactions()
+                    await message.delete()
                 except discord.HTTPException:
                     pass
                 break
 
             emoji = str(reaction.emoji)
+
+            if emoji == DELETE_EMOJI:
+                try:
+                    await message.delete()
+                except discord.HTTPException:
+                    pass
+                break
 
             try:
                 await message.remove_reaction(emoji, user)
