@@ -2,18 +2,15 @@
 database/mongodb.py
 --------------------
 Async MongoDB Atlas connection layer using Motor.
-All collections used by the bot are defined and exposed here so cogs
-never touch pymongo/motor directly - they just call Database methods.
 """
 
 import os
 import time
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 
 
 class Database:
-    """Thin async wrapper around all Royal Guard MongoDB collections."""
-
     def __init__(self):
         uri = os.getenv("MONGODB_URI")
         db_name = os.getenv("MONGODB_DB_NAME", "royalguard")
@@ -40,14 +37,9 @@ class Database:
         self.antinuke_config = self.db["antinuke_config"]
         self.antinuke_whitelist = self.db["antinuke_whitelist"]
         self.action_tracking = self.db["action_tracking"]
+        self.tenants = self.db["tenants"]
 
     async def ensure_indexes(self):
-        """Create indexes needed for fast lookups. Call once on startup.
-
-        Wrapped in try/except per-index so a pre-existing index with
-        different options (e.g. a changed TTL value) logs a warning
-        instead of crashing the whole bot on startup.
-        """
         import logging
         log = logging.getLogger("RoyalGuard")
 
@@ -76,10 +68,10 @@ class Database:
         await _safe_create_index(self.antinuke_whitelist, [("guild_id", 1), ("user_id", 1)], unique=True)
         await _safe_create_index(self.action_tracking, [("guild_id", 1), ("user_id", 1), ("action_type", 1)])
         await _safe_create_index(self.action_tracking, "timestamp", expireAfterSeconds=60)
+        await _safe_create_index(self.tenants, "owner_discord_id")
+        await _safe_create_index(self.tenants, "status")
 
-    # ============================================================
-    # VERIFICATION
-    # ============================================================
+    # VERIFICATION (global, not per-guild)
     async def get_verification(self, discord_id: int):
         return await self.verifications.find_one({"discord_id": str(discord_id)})
 
@@ -93,19 +85,13 @@ class Database:
             "roblox_username": roblox_username,
             "verified_at": time.time(),
         }
-        await self.verifications.update_one(
-            {"discord_id": str(discord_id)},
-            {"$set": doc},
-            upsert=True,
-        )
+        await self.verifications.update_one({"discord_id": str(discord_id)}, {"$set": doc}, upsert=True)
         return doc
 
     async def remove_verification(self, discord_id: int):
         await self.verifications.delete_one({"discord_id": str(discord_id)})
 
-    # ============================================================
     # ADMIN LEVELS (per-guild)
-    # ============================================================
     async def get_admin_level(self, guild_id: int, discord_id: int) -> int:
         doc = await self.admin_levels.find_one({"guild_id": str(guild_id), "discord_id": str(discord_id)})
         return doc["level"] if doc else 0
@@ -120,17 +106,11 @@ class Database:
     async def remove_admin_level(self, guild_id: int, discord_id: int):
         await self.admin_levels.delete_one({"guild_id": str(guild_id), "discord_id": str(discord_id)})
 
-    # ============================================================
     # GROUPBINDS
-    # ============================================================
     async def add_groupbind(self, guild_id: int, group_id: int, group_name: str):
         await self.groupbinds.update_one(
             {"guild_id": str(guild_id), "group_id": str(group_id)},
-            {"$set": {
-                "guild_id": str(guild_id),
-                "group_id": str(group_id),
-                "group_name": group_name,
-            }},
+            {"$set": {"guild_id": str(guild_id), "group_id": str(group_id), "group_name": group_name}},
             upsert=True,
         )
 
@@ -142,19 +122,13 @@ class Database:
         cursor = self.groupbinds.find({"guild_id": str(guild_id)})
         return [doc async for doc in cursor]
 
-   # ============================================================
-    # RANKBINDS (multiple roles per rank supported)
-    # ============================================================
+    # RANKBINDS (unique on guild+group+rank+role, so multiple roles per rank work)
     async def add_rankbind(self, guild_id: int, group_id: int, rank_id: int, role_id: int, rank_name: str = "", nickname_prefix: str = ""):
         await self.rankbinds.update_one(
             {"guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id, "role_id": str(role_id)},
             {"$set": {
-                "guild_id": str(guild_id),
-                "group_id": str(group_id),
-                "rank_id": rank_id,
-                "role_id": str(role_id),
-                "rank_name": rank_name,
-                "nickname_prefix": nickname_prefix,
+                "guild_id": str(guild_id), "group_id": str(group_id), "rank_id": rank_id,
+                "role_id": str(role_id), "rank_name": rank_name, "nickname_prefix": nickname_prefix,
             }},
             upsert=True,
         )
@@ -174,58 +148,37 @@ class Database:
         cursor = self.rankbinds.find(query)
         return [doc async for doc in cursor]
 
-    # ============================================================
     # TICKET CONFIG / TICKETS
-    # ============================================================
     async def get_ticket_config(self, guild_id: int):
         return await self.ticket_config.find_one({"guild_id": str(guild_id)})
 
     async def set_ticket_config(self, guild_id: int, **kwargs):
         kwargs["guild_id"] = str(guild_id)
-        await self.ticket_config.update_one(
-            {"guild_id": str(guild_id)},
-            {"$set": kwargs},
-            upsert=True,
-        )
+        await self.ticket_config.update_one({"guild_id": str(guild_id)}, {"$set": kwargs}, upsert=True)
 
     async def create_ticket(self, channel_id: int, guild_id: int, owner_id: int, category: str):
         doc = {
-            "channel_id": str(channel_id),
-            "guild_id": str(guild_id),
-            "owner_id": str(owner_id),
-            "category": category,
-            "created_at": time.time(),
-            "closed": False,
+            "channel_id": str(channel_id), "guild_id": str(guild_id), "owner_id": str(owner_id),
+            "category": category, "created_at": time.time(), "closed": False,
         }
         await self.tickets.insert_one(doc)
         return doc
 
     async def close_ticket(self, channel_id: int):
-        await self.tickets.update_one(
-            {"channel_id": str(channel_id)},
-            {"$set": {"closed": True, "closed_at": time.time()}},
-        )
+        await self.tickets.update_one({"channel_id": str(channel_id)}, {"$set": {"closed": True, "closed_at": time.time()}})
 
     async def get_ticket(self, channel_id: int):
         return await self.tickets.find_one({"channel_id": str(channel_id)})
 
-    # ============================================================
-    # GUILD CONFIG
-    # ============================================================
+    # GUILD CONFIG (generic)
     async def get_guild_config(self, guild_id: int):
         return await self.guild_config.find_one({"guild_id": str(guild_id)}) or {}
 
     async def set_guild_config(self, guild_id: int, **kwargs):
         kwargs["guild_id"] = str(guild_id)
-        await self.guild_config.update_one(
-            {"guild_id": str(guild_id)},
-            {"$set": kwargs},
-            upsert=True,
-        )
+        await self.guild_config.update_one({"guild_id": str(guild_id)}, {"$set": kwargs}, upsert=True)
 
-    # ============================================================
     # LOG CHANNELS
-    # ============================================================
     async def get_log_channel(self, guild_id: int, log_type: str):
         config = await self.get_guild_config(guild_id)
         return config.get(f"{log_type}_log_channel_id")
@@ -233,15 +186,9 @@ class Database:
     async def set_log_channel(self, guild_id: int, log_type: str, channel_id: int):
         await self.set_guild_config(guild_id, **{f"{log_type}_log_channel_id": str(channel_id)})
 
-    # ============================================================
     # OAUTH STATE
-    # ============================================================
     async def create_oauth_state(self, state: str, discord_id: int):
-        await self.oauth_states.insert_one({
-            "state": state,
-            "discord_id": str(discord_id),
-            "created_at": time.time(),
-        })
+        await self.oauth_states.insert_one({"state": state, "discord_id": str(discord_id), "created_at": time.time()})
 
     async def consume_oauth_state(self, state: str):
         doc = await self.oauth_states.find_one({"state": state})
@@ -249,23 +196,13 @@ class Database:
             await self.oauth_states.delete_one({"state": state})
         return doc
 
-    # ============================================================
     # RANK REQUESTS
-    # ============================================================
-    async def create_rank_request(self, guild_id: int, requester_id: int, group_id: int,
-                                    rank_id: int, rank_name: str, group_name: str):
-        from bson import ObjectId
+    async def create_rank_request(self, guild_id: int, requester_id: int, group_id: int, rank_id: int, rank_name: str, group_name: str):
         request_id = str(ObjectId())
         doc = {
-            "_id": request_id,
-            "guild_id": str(guild_id),
-            "requester_id": str(requester_id),
-            "group_id": str(group_id),
-            "group_name": group_name,
-            "rank_id": rank_id,
-            "rank_name": rank_name,
-            "status": "pending",
-            "created_at": time.time(),
+            "_id": request_id, "guild_id": str(guild_id), "requester_id": str(requester_id),
+            "group_id": str(group_id), "group_name": group_name, "rank_id": rank_id,
+            "rank_name": rank_name, "status": "pending", "created_at": time.time(),
         }
         await self.rank_requests.insert_one(doc)
         return doc
@@ -285,10 +222,7 @@ class Database:
 
     async def get_rank_request_config(self, guild_id: int):
         config = await self.get_guild_config(guild_id)
-        return {
-            "approver_role_id": config.get("rankrequest_approver_role_id"),
-            "requests_channel_id": config.get("rankrequest_channel_id"),
-        }
+        return {"approver_role_id": config.get("rankrequest_approver_role_id"), "requests_channel_id": config.get("rankrequest_channel_id")}
 
     async def set_rank_request_config(self, guild_id: int, approver_role_id: int = None, requests_channel_id: int = None):
         update = {}
@@ -298,19 +232,11 @@ class Database:
             update["rankrequest_channel_id"] = str(requests_channel_id)
         await self.set_guild_config(guild_id, **update)
 
-    # ============================================================
     # REACTION ROLES
-    # ============================================================
     async def add_reaction_role(self, guild_id: int, channel_id: int, message_id: int, emoji: str, role_id: int):
         await self.reaction_roles.update_one(
             {"guild_id": str(guild_id), "message_id": str(message_id), "emoji": emoji},
-            {"$set": {
-                "guild_id": str(guild_id),
-                "channel_id": str(channel_id),
-                "message_id": str(message_id),
-                "emoji": emoji,
-                "role_id": str(role_id),
-            }},
+            {"$set": {"guild_id": str(guild_id), "channel_id": str(channel_id), "message_id": str(message_id), "emoji": emoji, "role_id": str(role_id)}},
             upsert=True,
         )
 
@@ -331,19 +257,12 @@ class Database:
             seen.add(doc["message_id"])
         return list(seen)
 
-    # ============================================================
     # INVITE TRACKING
-    # ============================================================
     async def snapshot_invites(self, guild_id: int, invite_data: list):
         for inv in invite_data:
             await self.invites.update_one(
                 {"guild_id": str(guild_id), "code": inv["code"]},
-                {"$set": {
-                    "guild_id": str(guild_id),
-                    "code": inv["code"],
-                    "uses": inv["uses"],
-                    "inviter_id": inv["inviter_id"],
-                }},
+                {"$set": {"guild_id": str(guild_id), "code": inv["code"], "uses": inv["uses"], "inviter_id": inv["inviter_id"]}},
                 upsert=True,
             )
 
@@ -369,33 +288,21 @@ class Database:
         cursor = self.invite_credits.find({"guild_id": str(guild_id)}).sort("count", -1).limit(limit)
         return [doc async for doc in cursor]
 
-    # ============================================================
     # AUTOMOD
-    # ============================================================
     async def get_automod_config(self, guild_id: int):
         return await self.automod_config.find_one({"guild_id": str(guild_id)}) or {}
 
     async def set_automod_config(self, guild_id: int, **kwargs):
         kwargs["guild_id"] = str(guild_id)
-        await self.automod_config.update_one(
-            {"guild_id": str(guild_id)},
-            {"$set": kwargs},
-            upsert=True,
-        )
+        await self.automod_config.update_one({"guild_id": str(guild_id)}, {"$set": kwargs}, upsert=True)
 
-    # ============================================================
     # ANTI-NUKE
-    # ============================================================
     async def get_antinuke_config(self, guild_id: int):
         return await self.antinuke_config.find_one({"guild_id": str(guild_id)}) or {}
 
     async def set_antinuke_config(self, guild_id: int, **kwargs):
         kwargs["guild_id"] = str(guild_id)
-        await self.antinuke_config.update_one(
-            {"guild_id": str(guild_id)},
-            {"$set": kwargs},
-            upsert=True,
-        )
+        await self.antinuke_config.update_one({"guild_id": str(guild_id)}, {"$set": kwargs}, upsert=True)
 
     async def add_antinuke_whitelist(self, guild_id: int, user_id: int):
         await self.antinuke_whitelist.update_one(
@@ -412,22 +319,54 @@ class Database:
         return doc is not None
 
     async def record_action(self, guild_id: int, user_id: int, action_type: str):
-        await self.action_tracking.insert_one({
-            "guild_id": str(guild_id),
-            "user_id": str(user_id),
-            "action_type": action_type,
-            "timestamp": time.time(),
-        })
+        await self.action_tracking.insert_one({"guild_id": str(guild_id), "user_id": str(user_id), "action_type": action_type, "timestamp": time.time()})
 
     async def count_recent_actions(self, guild_id: int, user_id: int, action_type: str, window_seconds: int = 60) -> int:
         cutoff = time.time() - window_seconds
         return await self.action_tracking.count_documents({
-            "guild_id": str(guild_id),
-            "user_id": str(user_id),
-            "action_type": action_type,
-            "timestamp": {"$gte": cutoff},
+            "guild_id": str(guild_id), "user_id": str(user_id), "action_type": action_type, "timestamp": {"$gte": cutoff},
         })
 
+    # WELCOME DM (reuses guild_config)
+    async def get_welcome_dm_config(self, guild_id: int):
+        return await self.get_guild_config(guild_id)
 
-# Global singleton, initialized in main.py
+    async def set_welcome_dm_config(self, guild_id: int, **kwargs):
+        await self.set_guild_config(guild_id, **kwargs)
+
+    # TENANTS (multi-instance bot hosting)
+    async def add_tenant(self, owner_discord_id: int, encrypted_token: str, bot_name: str = ""):
+        doc = {
+            "owner_discord_id": owner_discord_id,
+            "encrypted_token": encrypted_token,
+            "bot_name": bot_name,
+            "status": "active",
+            "last_error": None,
+            "created_at": time.time(),
+        }
+        result = await self.tenants.insert_one(doc)
+        return str(result.inserted_id)
+
+    async def get_tenant(self, tenant_id: str):
+        return await self.tenants.find_one({"_id": ObjectId(tenant_id)})
+
+    async def list_tenants(self, status: str = None, owner_discord_id: int = None):
+        query = {}
+        if status:
+            query["status"] = status
+        if owner_discord_id:
+            query["owner_discord_id"] = owner_discord_id
+        cursor = self.tenants.find(query)
+        return [doc async for doc in cursor]
+
+    async def set_tenant_status(self, tenant_id: str, status: str, last_error: str = None):
+        await self.tenants.update_one(
+            {"_id": ObjectId(tenant_id)},
+            {"$set": {"status": status, "last_error": last_error}},
+        )
+
+    async def remove_tenant(self, tenant_id: str):
+        await self.tenants.delete_one({"_id": ObjectId(tenant_id)})
+
+
 db = Database()
