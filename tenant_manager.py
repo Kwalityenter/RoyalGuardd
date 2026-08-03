@@ -51,17 +51,22 @@ class TenantRuntime:
 
         self.bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
+        async def setup_hook():
+            for cog in TENANT_COGS:
+                try:
+                    await self.bot.load_extension(cog)
+                except Exception as e:
+                    log.error(f"Tenant {self.tenant_id}: failed to load {cog}: {e}")
+            synced = await self.bot.tree.sync()
+            log.info(f"Tenant {self.tenant_id}: synced {len(synced)} slash commands.")
+
+        self.bot.setup_hook = setup_hook
+
         @self.bot.event
         async def on_ready():
             log.info(f"Tenant {self.tenant_id} ({self.bot.user}) is online in {len(self.bot.guilds)} server(s).")
             self.status = "active"
             await db.set_tenant_status(self.tenant_id, "active")
-
-        for cog in TENANT_COGS:
-            try:
-                await self.bot.load_extension(cog)
-            except Exception as e:
-                log.error(f"Tenant {self.tenant_id}: failed to load {cog}: {e}")
 
         try:
             await self.bot.start(self.token)
