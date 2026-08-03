@@ -29,12 +29,6 @@ class Tenants(commands.Cog):
     @is_owner()
     @app_commands.describe(token="The tenant's Discord bot token", owner_id="The Discord user ID this bot belongs to", name="A label for this tenant")
     async def tenant_register(self, interaction: discord.Interaction, token: str, owner_id: str, name: str = ""):
-        if interaction.guild is not None:
-            return await interaction.response.send_message(
-                embed=embeds.error_embed("Wrong Channel", "Run this command in a DM to the bot, never in a server channel."),
-                ephemeral=True,
-            )
-
         if not owner_id.isdigit():
             return await interaction.response.send_message(embed=embeds.error_embed("Invalid Owner ID", "owner_id must be numeric."))
 
