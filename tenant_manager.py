@@ -1,4 +1,8 @@
-"""tenant_manager.py — Runs one discord.py bot instance per tenant, concurrently."""
+"""tenant_manager.py — Runs one discord.py bot instance per tenant, concurrently,
+reusing the same cogs as the main Royal Guard bot. Polls MongoDB every 30s for
+newly registered, stopped, or removed tenants and starts/stops them live —
+no redeploy needed when a new tenant is registered via /tenant register.
+"""
 
 import asyncio
 import logging
@@ -10,6 +14,8 @@ from utils.token_crypto import decrypt_token
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] TenantManager: %(message)s")
 log = logging.getLogger("tenant_manager")
+
+POLL_INTERVAL_SECONDS = 30
 
 TENANT_COGS = [
     "cogs.adminlevels",
@@ -33,10 +39,10 @@ class TenantRuntime:
         self.tenant_id = tenant_id
         self.owner_discord_id = owner_discord_id
         self.token = token
-        self.bot = None
-        self.task = None
+        self.bot: commands.Bot | None = None
+        self.task: asyncio.Task | None = None
         self.status = "starting"
-        self.last_error = None
+        self.last_error: str | None = None
 
     async def start(self):
         intents = discord.Intents.default()
@@ -48,6 +54,7 @@ class TenantRuntime:
         @self.bot.event
         async def on_ready():
             log.info(f"Tenant {self.tenant_id} ({self.bot.user}) is online in {len(self.bot.guilds)} server(s).")
+            self.status = "active"
             await db.set_tenant_status(self.tenant_id, "active")
 
         for cog in TENANT_COGS:
@@ -77,31 +84,54 @@ class TenantRuntime:
 
 class TenantManager:
     def __init__(self):
-        self.runtimes = {}
+        self.runtimes: dict[str, TenantRuntime] = {}
 
-    async def load_and_start_all(self):
-        tenants = await db.list_tenants(status="active")
-        log.info(f"Loading {len(tenants)} active tenant(s)...")
+    async def _start_tenant(self, tenant: dict):
+        tenant_id = str(tenant["_id"])
+        try:
+            token = decrypt_token(tenant["encrypted_token"])
+        except ValueError as e:
+            log.error(f"Tenant {tenant_id}: {e} — skipping, marking errored.")
+            await db.set_tenant_status(tenant_id, "error", last_error=str(e))
+            return
 
-        for tenant in tenants:
-            try:
-                token = decrypt_token(tenant["encrypted_token"])
-            except ValueError as e:
-                log.error(f"Tenant {tenant['_id']}: {e} — skipping, marking errored.")
-                await db.set_tenant_status(str(tenant["_id"]), "error", last_error=str(e))
-                continue
+        runtime = TenantRuntime(tenant_id, tenant["owner_discord_id"], token)
+        self.runtimes[tenant_id] = runtime
+        runtime.task = asyncio.create_task(runtime.start())
+        log.info(f"Starting new tenant {tenant_id} ({tenant.get('bot_name') or 'unnamed'})...")
 
-            runtime = TenantRuntime(str(tenant["_id"]), tenant["owner_discord_id"], token)
-            self.runtimes[runtime.tenant_id] = runtime
-            runtime.task = asyncio.create_task(runtime.start())
+    async def _stop_tenant(self, tenant_id: str):
+        runtime = self.runtimes.pop(tenant_id, None)
+        if runtime:
+            log.info(f"Stopping tenant {tenant_id}...")
+            await runtime.stop()
+            if runtime.task and not runtime.task.done():
+                runtime.task.cancel()
 
-        if not self.runtimes:
-            log.info("No active tenants to run. Idling.")
+    async def sync_once(self):
+        """Compare DB state against currently-running tenants and reconcile.
+        Called on startup and every POLL_INTERVAL_SECONDS afterward."""
+        active_tenants = await db.list_tenants(status="active")
+        active_ids = {str(t["_id"]) for t in active_tenants}
+        running_ids = set(self.runtimes.keys())
+
+        for tenant in active_tenants:
+            tenant_id = str(tenant["_id"])
+            if tenant_id not in running_ids:
+                await self._start_tenant(tenant)
+
+        for tenant_id in running_ids - active_ids:
+            await self._stop_tenant(tenant_id)
 
     async def run_forever(self):
-        await self.load_and_start_all()
+        log.info("Starting tenant sync loop...")
+        await self.sync_once()
         while True:
-            await asyncio.sleep(60)
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            try:
+                await self.sync_once()
+            except Exception as e:
+                log.error(f"Sync cycle failed: {e}")
 
 
 async def main():
