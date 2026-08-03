@@ -6,9 +6,9 @@ Central branding and styling configuration for the Royal Guard bot.
 
 import os
 
-BOT_NAME = "Royal Guard"
+BOT_NAME = "Royal Guard Services ©"
 BOT_TAG = "British Army Verification System"
-BOT_VERSION = "V2"
+BOT_VERSION = "All Rights Reserved."
 
 BOT_ICON_URL = os.getenv(
     "BOT_ICON_URL",
