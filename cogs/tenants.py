@@ -7,7 +7,8 @@ from discord.ext import commands
 from database.mongodb import db
 from utils import embeds
 from utils.token_crypto import encrypt_token
-from config.settings import BOT_OWNER_ID
+import os
+BOT_OWNER_ID = os.getenv("BOT_OWNER_ID")
 
 
 def is_owner():
