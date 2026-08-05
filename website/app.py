@@ -19,6 +19,9 @@ app.secret_key = os.getenv("WEBSITE_SECRET_KEY", "dev-secret-change-me")
 from website.routes.oauth import oauth_bp
 app.register_blueprint(oauth_bp)
 
+from website.routes.tenant import tenant_bp
+app.register_blueprint(tenant_bp)
+
 
 @app.route("/")
 def index():
