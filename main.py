@@ -47,6 +47,7 @@ COGS = [
     "cogs.automod",
     "cogs.antinuke",
     "cogs.tenants",
+    "cogs.registerpanel",
 ]
 
 
@@ -68,11 +69,14 @@ class RoyalGuardBot(commands.Bot):
         from cogs.verification import VerificationView
         from cogs.tickets import ReportPanelView, OtherPanelView, CloseTicketView
         from cogs.rankrequest import RankRequestView
+        from cogs.registerpanel import RegisterPanelView, DMInstructionsView
 
         self.add_view(VerificationView())
         self.add_view(ReportPanelView())
         self.add_view(OtherPanelView())
         self.add_view(CloseTicketView())
+        self.add_view(RegisterPanelView())
+        self.add_view(DMInstructionsView())
 
         pending_requests = await db.get_pending_rank_requests()
         for req in pending_requests:

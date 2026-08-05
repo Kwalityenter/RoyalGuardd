@@ -38,6 +38,7 @@ class Database:
         self.antinuke_whitelist = self.db["antinuke_whitelist"]
         self.action_tracking = self.db["action_tracking"]
         self.tenants = self.db["tenants"]
+        self.pending_tenants = self.db["pending_tenants"]
 
     async def ensure_indexes(self):
         import logging
@@ -367,6 +368,27 @@ class Database:
 
     async def remove_tenant(self, tenant_id: str):
         await self.tenants.delete_one({"_id": ObjectId(tenant_id)})
+
+    # PENDING TENANTS (awaiting owner approval, submitted via /register panel)
+    async def add_pending_tenant(self, owner_discord_id: int, encrypted_token: str, bot_name: str = ""):
+        doc = {
+            "owner_discord_id": owner_discord_id,
+            "encrypted_token": encrypted_token,
+            "bot_name": bot_name,
+            "submitted_at": time.time(),
+        }
+        result = await self.pending_tenants.insert_one(doc)
+        return str(result.inserted_id)
+
+    async def get_pending_tenant(self, pending_id: str):
+        return await self.pending_tenants.find_one({"_id": ObjectId(pending_id)})
+
+    async def list_pending_tenants(self):
+        cursor = self.pending_tenants.find({})
+        return [doc async for doc in cursor]
+
+    async def remove_pending_tenant(self, pending_id: str):
+        await self.pending_tenants.delete_one({"_id": ObjectId(pending_id)})
 
 
 db = Database()

@@ -78,5 +78,66 @@ class Tenants(commands.Cog):
         await interaction.followup.send(embed=embeds.success_embed("Tenant Removed", f"`{tenant_id}` deleted permanently."))
 
 
+    @group.command(name="pending", description="List bots awaiting approval.")
+    @is_owner()
+    async def tenant_pending(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        pending = await db.list_pending_tenants()
+
+        if not pending:
+            return await interaction.followup.send(embed=embeds.info_embed("Pending Tenants", "No submissions awaiting review."))
+
+        lines = []
+        for p in pending:
+            name = p.get("bot_name") or "(unnamed)"
+            lines.append(f"`{p['_id']}` — {name} — submitted by `{p['owner_discord_id']}`")
+
+        await interaction.followup.send(embed=embeds.info_embed("Pending Tenants", "\n".join(lines)))
+
+    @group.command(name="approve", description="Approve a pending submission and activate it.")
+    @is_owner()
+    @app_commands.describe(pending_id="The pending submission ID (from /tenant pending)")
+    async def tenant_approve(self, interaction: discord.Interaction, pending_id: str):
+        await interaction.response.defer(ephemeral=True)
+
+        pending = await db.get_pending_tenant(pending_id)
+        if not pending:
+            return await interaction.followup.send(embed=embeds.error_embed("Not Found", f"No pending submission with ID `{pending_id}`."))
+
+        tenant_id = await db.add_tenant(
+            pending["owner_discord_id"], pending["encrypted_token"], bot_name=pending.get("bot_name", "")
+        )
+        await db.remove_pending_tenant(pending_id)
+
+        await interaction.followup.send(embed=embeds.success_embed(
+            "Tenant Approved",
+            f"Activated as `{tenant_id}`. It will come online automatically within 30 seconds.",
+        ))
+
+        try:
+            owner = self.bot.get_user(pending["owner_discord_id"]) or await self.bot.fetch_user(pending["owner_discord_id"])
+            await owner.send(embed=embeds.success_embed("Your Bot Has Been Approved", "Your bot will come online shortly. Check the server it's in to confirm."))
+        except (discord.Forbidden, discord.NotFound):
+            pass
+
+    @group.command(name="reject", description="Reject a pending submission without activating it.")
+    @is_owner()
+    @app_commands.describe(pending_id="The pending submission ID (from /tenant pending)")
+    async def tenant_reject(self, interaction: discord.Interaction, pending_id: str):
+        await interaction.response.defer(ephemeral=True)
+
+        pending = await db.get_pending_tenant(pending_id)
+        if not pending:
+            return await interaction.followup.send(embed=embeds.error_embed("Not Found", f"No pending submission with ID `{pending_id}`."))
+
+        await db.remove_pending_tenant(pending_id)
+        await interaction.followup.send(embed=embeds.success_embed("Rejected", f"`{pending_id}` deleted."))
+
+        try:
+            owner = self.bot.get_user(pending["owner_discord_id"]) or await self.bot.fetch_user(pending["owner_discord_id"])
+            await owner.send(embed=embeds.error_embed("Submission Rejected", "Your bot submission was not approved. Contact the server owner for details."))
+        except (discord.Forbidden, discord.NotFound):
+            pass
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(Tenants(bot))
