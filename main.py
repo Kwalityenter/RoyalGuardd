@@ -85,10 +85,6 @@ class RoyalGuardBot(commands.Bot):
         log.info(f"Re-registered {len(pending_requests)} pending rank request views.")
 
         dev_guild_id = os.getenv("DEV_GUILD_ID")
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync()
-        log.info("Cleared stale global commands (one-time).")
-
         if dev_guild_id:
             guild = discord.Object(id=int(dev_guild_id))
             self.tree.copy_global_to(guild=guild)
@@ -97,6 +93,10 @@ class RoyalGuardBot(commands.Bot):
         else:
             synced = await self.tree.sync()
             log.info(f"Synced {len(synced)} global slash commands.")
+
+        self.tree.clear_commands(guild=None)
+        await self.tree.sync()
+        log.info("Cleared stale global commands (one-time).")
 
     async def on_ready(self):
         log.info(f"Logged in as {self.user} (ID: {self.user.id})")
