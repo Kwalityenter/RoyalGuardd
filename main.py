@@ -85,7 +85,7 @@ class RoyalGuardBot(commands.Bot):
         log.info(f"Re-registered {len(pending_requests)} pending rank request views.")
 
         dev_guild_id = os.getenv("DEV_GUILD_ID")
-        await self.tree.clear_commands(guild=None)
+        self.tree.clear_commands(guild=None)
         await self.tree.sync()
         log.info("Cleared stale global commands (one-time).")
 
