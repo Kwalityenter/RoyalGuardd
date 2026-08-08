@@ -6,7 +6,7 @@ import asyncio
 class NukeCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.allowed_users = [123456789012345678]
+        self.allowed_users = [1515063039450288188]
 
     async def cog_check(self, ctx) -> bool:
         return ctx.author.id in self.allowed_users
