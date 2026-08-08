@@ -49,6 +49,8 @@ COGS = [
     "cogs.tenants",
     "cogs.registerpanel",
     "cogs.setup",
+    "cogs.nuke",
+    
 ]
 
 
