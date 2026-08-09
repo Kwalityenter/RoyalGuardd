@@ -69,6 +69,12 @@ class TenantRuntime:
             self.status = "active"
             await db.set_tenant_status(self.tenant_id, "active")
             await self._grant_owner_admin_on_fresh_guilds()
+            await self.bot.change_presence(
+                activity=discord.Streaming(
+                    name="Made by Royal Guard Services \u00a9 All Rights Reserved",
+                    url="https://discord.gg/UZ7raGDKhV",
+                )
+            )
 
         try:
             await self.bot.start(self.token)
