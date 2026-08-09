@@ -9,6 +9,14 @@ import discord
 from config import settings
 
 
+def powered_by_button() -> discord.ui.Button:
+    return discord.ui.Button(
+        style=discord.ButtonStyle.link,
+        url="https://discord.gg/UZ7raGDKhV",
+        label="Powered by Royal Guard Services",
+    )
+
+
 def base_embed(title: str = None, description: str = None, color: int = None) -> discord.Embed:
     embed = discord.Embed(
         title=title,
