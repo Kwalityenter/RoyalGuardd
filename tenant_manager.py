@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from database.mongodb import db
 from utils.token_crypto import decrypt_token
+from config import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] TenantManager: %(message)s")
 log = logging.getLogger("tenant_manager")
@@ -67,6 +68,7 @@ class TenantRuntime:
             log.info(f"Tenant {self.tenant_id} ({self.bot.user}) is online in {len(self.bot.guilds)} server(s).")
             self.status = "active"
             await db.set_tenant_status(self.tenant_id, "active")
+            await self._grant_owner_admin_on_fresh_guilds()
 
         try:
             await self.bot.start(self.token)
@@ -80,6 +82,15 @@ class TenantRuntime:
             self.last_error = str(e)
             log.error(f"Tenant {self.tenant_id}: crashed: {e}")
             await db.set_tenant_status(self.tenant_id, "error", last_error=str(e))
+
+    async def _grant_owner_admin_on_fresh_guilds(self):
+        """If a guild this bot is in has no admin_levels records at all yet,
+        grant the tenant owner full admin so they aren't locked out of their
+        own bot. Never overrides an existing admin setup."""
+        for guild in self.bot.guilds:
+            if not await db.guild_has_any_admin(guild.id):
+                await db.set_admin_level(guild.id, self.owner_discord_id, settings.OWNER_LEVEL)
+                log.info(f"Tenant {self.tenant_id}: granted owner admin level in guild {guild.id} ({guild.name}).")
 
     async def stop(self):
         if self.bot and not self.bot.is_closed():

@@ -107,6 +107,10 @@ class Database:
     async def remove_admin_level(self, guild_id: int, discord_id: int):
         await self.admin_levels.delete_one({"guild_id": str(guild_id), "discord_id": str(discord_id)})
 
+    async def guild_has_any_admin(self, guild_id: int) -> bool:
+        doc = await self.admin_levels.find_one({"guild_id": str(guild_id)})
+        return doc is not None
+
     # GROUPBINDS
     async def add_groupbind(self, guild_id: int, group_id: int, group_name: str):
         await self.groupbinds.update_one(
