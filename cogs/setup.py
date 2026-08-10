@@ -37,7 +37,8 @@ CATEGORIES = {
         "label": "Roles",
         "description": "Configure role settings",
         "options": {
-            "extras_role_id": {"label": "Extras Role", "description": "Extra role for verified users", "type": "role"},
+            "extra_roles": {"label": "Extra Roles", "description": "Comma-separated role names, auto-added to every rankbind", "type": "list"},
+            "verified_roles": {"label": "Verified Roles", "description": "Comma-separated role names, auto-added to every rankbind", "type": "list"},
             "nitro_booster_role_id": {"label": "Nitro Booster Role", "description": "Nitro booster role", "type": "role"},
             "flex_role_id": {"label": "Flex Role", "description": "Flex role for nitro boosters", "type": "role"},
             "non_verified_role_id": {"label": "Non-Verified Role", "description": "Role for non-verified users", "type": "role"},

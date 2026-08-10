@@ -32,6 +32,7 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
     added, removed = [], []
     best_prefix = None
     best_rank_id = -1
+    has_any_rank = False
 
     for gb in groupbinds:
         group_id = int(gb["group_id"])
@@ -44,6 +45,8 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
                 continue
 
             should_have = int(rb["rank_id"]) == rank_id
+            if should_have:
+                has_any_rank = True
             has_role = role in member.roles
 
             try:
@@ -59,6 +62,49 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
             if should_have and rb.get("nickname_prefix") and int(rb["rank_id"]) > best_rank_id:
                 best_rank_id = int(rb["rank_id"])
                 best_prefix = rb["nickname_prefix"]
+
+    # Sticky roles from /setup. Extra Roles and Verified Roles are comma-separated
+    # role NAME lists, resolved fresh each sync. Ranks Role and Non-BA are single
+    # role IDs. Non-Verified is always removed here since this function only runs
+    # for already-verified members.
+    guild_config = await db.get_guild_config(guild.id)
+
+    def _cfg_role(key):
+        role_id = guild_config.get(key)
+        return guild.get_role(int(role_id)) if role_id else None
+
+    def _cfg_role_list(key):
+        raw = guild_config.get(key, "")
+        names = [n.strip() for n in raw.split(",") if n.strip()]
+        roles = []
+        for name in names:
+            role = discord.utils.get(guild.roles, name=name)
+            if role:
+                roles.append(role)
+        return roles
+
+    sticky_adjustments = []
+    for role in _cfg_role_list("extra_roles"):
+        sticky_adjustments.append((role, has_any_rank))
+    for role in _cfg_role_list("verified_roles"):
+        sticky_adjustments.append((role, has_any_rank))
+    sticky_adjustments.append((_cfg_role("ranks_role_id"), has_any_rank))
+    sticky_adjustments.append((_cfg_role("non_verified_role_id"), False))
+    sticky_adjustments.append((_cfg_role("non_ba_role_id"), not has_any_rank))
+
+    for role, should_have in sticky_adjustments:
+        if role is None:
+            continue
+        has_role = role in member.roles
+        try:
+            if should_have and not has_role:
+                await member.add_roles(role, reason="Royal Guard rank sync (sticky)")
+                added.append(role.name)
+            elif not should_have and has_role:
+                await member.remove_roles(role, reason="Royal Guard rank sync (sticky)")
+                removed.append(role.name)
+        except discord.Forbidden:
+            continue
 
     nickname_changed = False
     verification = await db.get_verification(member.id)
@@ -92,6 +138,22 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
 class Update(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        if member.bot:
+            return
+        guild_config = await db.get_guild_config(member.guild.id)
+        role_id = guild_config.get("non_ba_role_id")
+        if not role_id:
+            return
+        role = member.guild.get_role(int(role_id))
+        if role is None:
+            return
+        try:
+            await member.add_roles(role, reason="Royal Guard: assigned on join, not yet in BA group")
+        except discord.Forbidden:
+            pass
 
     @app_commands.command(name="update", description="Sync your own roles with your current Roblox group ranks.")
     async def update(self, interaction: discord.Interaction):
