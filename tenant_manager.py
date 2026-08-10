@@ -25,6 +25,7 @@ TENANT_COGS = [
     "cogs.update",
     "cogs.verification",
     "cogs.tickets",
+    "cogs.panels",
     "cogs.bgcheck",
     "cogs.moderation",
     "cogs.setrank",
@@ -32,6 +33,7 @@ TENANT_COGS = [
     "cogs.invites",
     "cogs.automod",
     "cogs.antinuke",
+    "cogs.setup",
 ]
 
 
