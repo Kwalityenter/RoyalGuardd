@@ -38,6 +38,7 @@ class Database:
         self.antinuke_whitelist = self.db["antinuke_whitelist"]
         self.action_tracking = self.db["action_tracking"]
         self.tenants = self.db["tenants"]
+        self.join_tracking = self.db["join_tracking"]
         self.pending_tenants = self.db["pending_tenants"]
 
     async def ensure_indexes(self):
@@ -71,6 +72,7 @@ class Database:
         await _safe_create_index(self.action_tracking, "timestamp", expireAfterSeconds=60)
         await _safe_create_index(self.tenants, "owner_discord_id")
         await _safe_create_index(self.tenants, "status")
+        await _safe_create_index(self.join_tracking, "timestamp", expireAfterSeconds=120)
 
     # VERIFICATION (global, not per-guild)
     async def get_verification(self, discord_id: int):
@@ -372,6 +374,14 @@ class Database:
 
     async def remove_tenant(self, tenant_id: str):
         await self.tenants.delete_one({"_id": ObjectId(tenant_id)})
+
+    # JOIN TRACKING (anti-raid)
+    async def record_join_event(self, guild_id: int):
+        await self.join_tracking.insert_one({"guild_id": str(guild_id), "timestamp": time.time()})
+
+    async def count_recent_joins(self, guild_id: int, window_seconds: int) -> int:
+        cutoff = time.time() - window_seconds
+        return await self.join_tracking.count_documents({"guild_id": str(guild_id), "timestamp": {"$gte": cutoff}})
 
     # PENDING TENANTS (awaiting owner approval, submitted via /register panel)
     async def add_pending_tenant(self, owner_discord_id: int, encrypted_token: str, bot_name: str = ""):

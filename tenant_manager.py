@@ -33,6 +33,7 @@ TENANT_COGS = [
     "cogs.invites",
     "cogs.automod",
     "cogs.antinuke",
+    "cogs.antiraid",
     "cogs.setup",
 ]
 
