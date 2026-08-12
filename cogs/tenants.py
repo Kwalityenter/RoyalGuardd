@@ -59,7 +59,20 @@ class Tenants(commands.Cog):
             if t.get("last_error"):
                 lines.append(f"    ⤷ {t['last_error']}")
 
-        await interaction.followup.send(embed=embeds.info_embed("Registered Tenants", "\n".join(lines)))
+        chunks = []
+        current, current_len = [], 0
+        for line in lines:
+            if current_len + len(line) + 1 > 3900:
+                chunks.append(current)
+                current, current_len = [], 0
+            current.append(line)
+            current_len += len(line) + 1
+        if current:
+            chunks.append(current)
+
+        for i, chunk in enumerate(chunks, start=1):
+            title = "Registered Tenants" if len(chunks) == 1 else f"Registered Tenants ({i}/{len(chunks)})"
+            await interaction.followup.send(embed=embeds.info_embed(title, "\n".join(chunk)))
 
     @group.command(name="stop", description="Mark a tenant as stopped.")
     @is_owner()
