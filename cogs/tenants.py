@@ -1,4 +1,5 @@
 """cogs/tenants.py — Owner-only tenant management."""
+import asyncio
 
 import discord
 from discord import app_commands
@@ -72,7 +73,13 @@ class Tenants(commands.Cog):
 
         for i, chunk in enumerate(chunks, start=1):
             title = "Registered Tenants" if len(chunks) == 1 else f"Registered Tenants ({i}/{len(chunks)})"
-            await interaction.followup.send(embed=embeds.info_embed(title, "\n".join(chunk)))
+            try:
+                await interaction.followup.send(embed=embeds.info_embed(title, "\n".join(chunk)), ephemeral=True)
+            except discord.HTTPException as e:
+                await interaction.followup.send(embed=embeds.error_embed("Error", f"Failed to send page {i}/{len(chunks)}: {e}"), ephemeral=True)
+                break
+            if i < len(chunks):
+                await asyncio.sleep(0.5)
 
     @group.command(name="stop", description="Mark a tenant as stopped.")
     @is_owner()
