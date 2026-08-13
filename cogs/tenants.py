@@ -58,7 +58,10 @@ class Tenants(commands.Cog):
             name = t.get("bot_name") or "(unnamed)"
             lines.append(f"{status_icon} `{t['_id']}` — {name} — owner `{t['owner_discord_id']}` — {t['status']}")
             if t.get("last_error"):
-                lines.append(f"    ⤷ {t['last_error']}")
+                error_text = str(t["last_error"])[:150]
+                if len(str(t["last_error"])) > 150:
+                    error_text += "..."
+                lines.append(f"    ⤷ {error_text}")
 
         chunks = []
         current, current_len = [], 0
