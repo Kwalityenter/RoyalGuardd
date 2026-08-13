@@ -93,13 +93,20 @@ class TenantRuntime:
             await db.set_tenant_status(self.tenant_id, "error", last_error=str(e))
 
     async def _grant_owner_admin_on_fresh_guilds(self):
-        """If a guild this bot is in has no admin_levels records at all yet,
-        grant the tenant owner full admin so they aren't locked out of their
-        own bot. Never overrides an existing admin setup."""
+        """Ensures the real Discord server owner (guild.owner_id — Discord's own
+        data, always correct) has max admin level in every guild this bot is in.
+        Uses guild.owner_id rather than self.owner_discord_id (the registration
+        field), since that field can be wrong/defaulted and previously caused
+        tenants to be stuck at admin level 0. Safe to run on every reconnect —
+        only ever raises the real owner's level, never touches anyone else's."""
         for guild in self.bot.guilds:
-            if not await db.guild_has_any_admin(guild.id):
-                await db.set_admin_level(guild.id, self.owner_discord_id, settings.OWNER_LEVEL)
-                log.info(f"Tenant {self.tenant_id}: granted owner admin level in guild {guild.id} ({guild.name}).")
+            real_owner_id = guild.owner_id
+            if real_owner_id is None:
+                continue
+            current_level = await db.get_admin_level(guild.id, real_owner_id)
+            if current_level < settings.OWNER_LEVEL:
+                await db.set_admin_level(guild.id, real_owner_id, settings.OWNER_LEVEL)
+                log.info(f"Tenant {self.tenant_id}: granted server owner ({real_owner_id}) admin level in guild {guild.id} ({guild.name}).")
 
     async def stop(self):
         if self.bot and not self.bot.is_closed():
