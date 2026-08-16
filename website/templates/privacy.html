@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Privacy Policy — Royal Guard Services{% endblock %}
+{% block content %}
+<style>
+  .legal{max-width:720px;margin:0 auto;padding:3rem 1.5rem;font-family:'Oswald','Arial Narrow',sans-serif;color:#e4e0d2;line-height:1.7;}
+  .legal .masthead{font-size:12px;letter-spacing:4px;text-transform:uppercase;color:#b9b39c;margin-bottom:10px;}
+  .legal h1{font-family:'Cinzel','Georgia',serif;font-weight:700;font-size:30px;color:#e9cf7f;margin-bottom:6px;}
+  .legal .updated{font-size:12.5px;color:#8a8570;margin-bottom:32px;}
+  .legal h2{font-family:'Cinzel','Georgia',serif;font-weight:700;font-size:18px;color:#e9cf7f;margin-top:32px;margin-bottom:10px;letter-spacing:0.5px;}
+  .legal p, .legal li{font-size:14.5px;color:#cfc9b8;}
+  .legal ul{padding-left:22px;margin:10px 0;}
+  .legal li{margin-bottom:6px;}
+  .legal a{color:#c9a441;}
+</style>
+
+<div class="legal">
+  <div class="masthead">British Army</div>
+  <h1>Privacy Policy</h1>
+  <div class="updated">Last updated: August 2026</div>
+
+  <p>Royal Guard Services ("we," "us," "the Service") operates a Discord bot and hosted-bot platform for Roblox military roleplay communities. This policy explains what information we collect, how we use it, and the choices you have.</p>
+
+  <h2>Information We Collect</h2>
+  <ul>
+    <li><strong>Discord account information:</strong> your Discord user ID, username, server join date, and server roles, as needed to operate bot features in servers you're a member of.</li>
+    <li><strong>Roblox account information:</strong> when you verify, we collect your Roblox user ID and username via Roblox's official OAuth2 login. We never see or store your Roblox password.</li>
+    <li><strong>Verification security logs:</strong> at the time of verification, we log the IP address and approximate geographic location (city/region level) associated with that verification, for fraud and account-security purposes.</li>
+    <li><strong>Moderation records:</strong> actions taken against your account within a server (warnings, mutes, bans, kicks) are logged for that server's moderation history.</li>
+    <li><strong>Hosted bot tokens (tenant platform only):</strong> if you register your own Discord bot through our hosting platform, your bot's authentication token is encrypted before storage and is only ever decrypted in memory to run your bot instance. We do not log or display your token in plaintext anywhere, including to our own staff.</li>
+  </ul>
+
+  <h2>How We Use Information</h2>
+  <ul>
+    <li>To link your Discord and Roblox accounts and keep your server roles in sync with your Roblox group rank</li>
+    <li>To provide moderation, ticket, and community-management tools within servers you're a member of</li>
+    <li>To detect and prevent abuse, fraud, and unauthorized access (including the security logs described above)</li>
+    <li>To operate hosted bot instances for approved tenant platform users</li>
+  </ul>
+
+  <h2>Data Sharing</h2>
+  <p>We do not sell your information. We do not share it with third parties for marketing purposes. Information is only disclosed when required by law, to protect the safety of our users, or to Discord and Roblox themselves as a necessary part of their own platforms' normal operation (for example, Discord's API requires us to interact with your account to apply roles).</p>
+
+  <h2>Data Retention and Deletion</h2>
+  <p>We retain verification records for as long as your Discord account remains linked to our service. You may request deletion of your data at any time by contacting server staff or reaching out through our <a href="https://discord.gg/UZ7raGDKhV">Discord server</a>. Verification security logs are retained for a limited period for fraud-prevention purposes and are not kept indefinitely.</p>
+
+  <h2>Children's Privacy</h2>
+  <p>Roblox requires users to be at least 13 years old to authorize OAuth2 applications. We do not knowingly collect information from anyone who does not meet Roblox's own eligibility requirements for this reason.</p>
+
+  <h2>Security</h2>
+  <p>Sensitive credentials, including hosted bot tokens, are encrypted at rest. All communication with our verification website is encrypted in transit (HTTPS). No online service can guarantee absolute security, but we take reasonable, active steps to protect your information.</p>
+
+  <h2>Changes to This Policy</h2>
+  <p>We may update this policy as the Service evolves. Material changes will be reflected here with an updated date.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy or your data can be directed to our team via the <a href="https://discord.gg/UZ7raGDKhV">Royal Guard Services Discord server</a>.</p>
+</div>
+{% endblock %}

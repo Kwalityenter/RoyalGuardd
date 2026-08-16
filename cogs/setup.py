@@ -31,6 +31,7 @@ CATEGORIES = {
             "bot_logs_channel_id": {"label": "Bot Logs Channel", "description": "Set the channel for bot logs", "type": "channel"},
             "verification_logs_channel_id": {"label": "Verification Logs Channel", "description": "Set the channel for verification logs", "type": "channel"},
             "ssu_channel_id": {"label": "SSU Channel", "description": "Server Startup channel", "type": "channel"},
+            "bmt_logs_channel_id": {"label": "BMT Logs Channel", "description": "Channel for BMT before/after training logs", "type": "channel"},
         },
     },
     "roles": {
@@ -83,6 +84,7 @@ CATEGORIES = {
             "ranking_logs_channel_id": {"label": "Ranking Logs Channel", "description": "Channel for ranking logs", "type": "channel"},
             "setrank_max_rank_id": {"label": "SetRank Max Rank ID", "description": "Maximum rank ID users can be ranked to", "type": "number"},
             "setrank_main_group": {"label": "SetRank Main Group", "description": "The main group the max rank limit applies to", "type": "number"},
+            "bmt_graduate_rank_id": {"label": "BMT Graduate Rank", "description": "Rank ID BMT graduates are promoted to", "type": "number"},
         },
     },
 }

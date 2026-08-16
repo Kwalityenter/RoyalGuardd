@@ -35,6 +35,7 @@ TENANT_COGS = [
     "cogs.antinuke",
     "cogs.antiraid",
     "cogs.setup",
+    "cogs.bmt",
 ]
 
 

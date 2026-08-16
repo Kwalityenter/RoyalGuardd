@@ -33,6 +33,16 @@ def health():
     return {"status": "healthy"}
 
 
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+
 @app.errorhandler(404)
 def not_found(e):
     return render_template("error.html", message="That page doesn't exist."), 404
