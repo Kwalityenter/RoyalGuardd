@@ -1,9 +1,13 @@
 """cogs/bmt.py — Basic Military Training bulk-graduation system.
 /bmt walks an instructor through submitting before/after training images and
-a list of trainee usernames via three chained modals, validates each name
-against the configured main Roblox group and current rank, then bulk-promotes
-everyone valid to the configured BMT graduate rank after explicit confirmation.
-Results are logged to the configured BMT logs channel, including both images.
+a list of trainee usernames, validates each name against the configured main
+Roblox group and current rank, then bulk-promotes everyone valid to the
+configured BMT graduate rank after explicit confirmation. Results are logged
+to the configured BMT logs channel, including both images.
+
+Each step uses a modal opened from a BUTTON click, not chained directly from
+another modal's submission — Discord does not reliably support opening a
+modal as the direct response to a modal submit interaction.
 """
 
 import asyncio
@@ -30,7 +34,12 @@ class StartImageModal(discord.ui.Modal, title="BMT System"):
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(EndImageModal(self.cog, str(self.starting_image.value).strip()))
+        view = ContinueView(self.cog, "end_image", {"starting_image": str(self.starting_image.value).strip()})
+        await interaction.response.send_message(
+            embed=embeds.info_embed("BMT System", "Starting image saved. Press Continue for the next step."),
+            view=view,
+            ephemeral=True,
+        )
 
 
 class EndImageModal(discord.ui.Modal, title="BMT System"):
@@ -42,13 +51,19 @@ class EndImageModal(discord.ui.Modal, title="BMT System"):
         max_length=300,
     )
 
-    def __init__(self, cog: "BMT", starting_image: str):
+    def __init__(self, cog: "BMT", state: dict):
         super().__init__()
         self.cog = cog
-        self.starting_image = starting_image
+        self.state = state
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(UsernamesModal(self.cog, self.starting_image, str(self.ending_image.value).strip()))
+        self.state["ending_image"] = str(self.ending_image.value).strip()
+        view = ContinueView(self.cog, "usernames", self.state)
+        await interaction.response.send_message(
+            embed=embeds.info_embed("BMT System", "Ending image saved. Press Continue for the next step."),
+            view=view,
+            ephemeral=True,
+        )
 
 
 class UsernamesModal(discord.ui.Modal, title="BMT System"):
@@ -60,16 +75,38 @@ class UsernamesModal(discord.ui.Modal, title="BMT System"):
         max_length=1900,
     )
 
-    def __init__(self, cog: "BMT", starting_image: str, ending_image: str):
+    def __init__(self, cog: "BMT", state: dict):
         super().__init__()
         self.cog = cog
-        self.starting_image = starting_image
-        self.ending_image = ending_image
+        self.state = state
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         raw_names = [n.strip() for n in str(self.usernames.value).split(",") if n.strip()]
-        await self.cog.process_bmt_submission(interaction, self.starting_image, self.ending_image, raw_names)
+        await self.cog.process_bmt_submission(interaction, self.state["starting_image"], self.state["ending_image"], raw_names)
+
+
+class ContinueView(discord.ui.View):
+    """A single 'Continue' button that opens the next modal in the chain.
+    Opening a modal from a button click is reliably supported by Discord;
+    opening one directly from a modal submission is not, which is why this
+    extra click exists between each step."""
+
+    NEXT_MODAL = {
+        "end_image": EndImageModal,
+        "usernames": UsernamesModal,
+    }
+
+    def __init__(self, cog: "BMT", next_step: str, state: dict):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.next_step = next_step
+        self.state = state
+
+    @discord.ui.button(label="Continue", style=discord.ButtonStyle.primary)
+    async def continue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal_cls = self.NEXT_MODAL[self.next_step]
+        await interaction.response.send_modal(modal_cls(self.cog, self.state))
 
 
 class ConfirmBMTView(discord.ui.View):
