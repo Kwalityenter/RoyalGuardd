@@ -204,7 +204,7 @@ class BMT(commands.Cog):
 
         promoted, failed = [], []
         for name, roblox_id in valid_users:
-            success = await roblox.set_group_rank(main_group_id, roblox_id, graduate_rank_id)
+            success = await roblox.set_group_rank(main_group_id, roblox_id, graduate_rank_id, guild_id=interaction.guild.id)
             if success:
                 promoted.append(name)
             else:

@@ -80,7 +80,7 @@ class SetRank(commands.Cog):
         success = False
         if rank_role_data:
             try:
-                success = await roblox.set_group_rank(group_id, roblox_id, rank_role_data["id"])
+                success = await roblox.set_group_rank(group_id, roblox_id, rank_role_data["id"], guild_id=interaction.guild.id)
             except RuntimeError:
                 success = False
 

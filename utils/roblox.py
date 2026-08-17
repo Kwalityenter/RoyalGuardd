@@ -109,21 +109,35 @@ async def get_user_rank_in_group(roblox_id: int, group_id: int):
 # ============================================================
 # AUTHENTICATED GROUP RANKING (service account required)
 # ============================================================
-async def set_group_rank(group_id: int, roblox_user_id: int, role_id: int):
-    """Sets a member's rank in a group using the service account cookie.
+async def set_group_rank(group_id: int, roblox_user_id: int, role_id: int, guild_id: int = None):
+    """Sets a member's rank in a group using a service account cookie.
 
-    Requires ROBLOX_SECURITY_COOKIE in the environment. Roblox requires a
-    fresh X-CSRF-TOKEN per request, obtained from a 403 response header.
+    Checks the per-guild cookie configured via /setup (Ranking > ROBLOX Cookie)
+    first, so each tenant server can rank with its own Roblox service account.
+    Falls back to the global ROBLOX_SECURITY_COOKIE env var if the guild hasn't
+    configured one, or if guild_id isn't passed at all — this keeps the main
+    bot working with zero config changes needed.
+
+    Roblox requires a fresh X-CSRF-TOKEN per request, obtained from a 403
+    response header.
     """
-    cookie = os.getenv("ROBLOX_SECURITY_COOKIE")
+    cookie = None
+    if guild_id is not None:
+        from database.mongodb import db
+        guild_config = await db.get_guild_config(guild_id)
+        cookie = guild_config.get("roblox_cookie")
+
     if not cookie:
-        print("[SETRANK DEBUG] ROBLOX_SECURITY_COOKIE is not set at all.")
+        cookie = os.getenv("ROBLOX_SECURITY_COOKIE")
+
+    if not cookie:
+        print(f"[SETRANK DEBUG] No cookie found (guild_id={guild_id}, checked per-guild config and env var).")
         raise RuntimeError("ROBLOX_SECURITY_COOKIE not configured - cannot rank users.")
 
     cookies = {".ROBLOSECURITY": cookie}
     url = f"{GROUPS_API}/groups/{group_id}/users/{roblox_user_id}"
 
-    print(f"[SETRANK DEBUG] cookie_length={len(cookie)} url={url} role_id={role_id}")
+    print(f"[SETRANK DEBUG] cookie_length={len(cookie)} url={url} role_id={role_id} guild_id={guild_id}")
 
     async with aiohttp.ClientSession(cookies=cookies) as session:
         async with session.patch(url, json={"roleId": role_id}) as resp:
