@@ -1,18 +1,6 @@
 """cogs/bgcheck.py — !bgcheck @user, paginated Discord/Roblox/Regiment info embed.
 Pagination via message reactions: ⬅️ (previous), ➡️ (next), 🏁 (jump to last page), 🗑️ (delete).
 Auto-deletes after 60s of inactivity. Bot requires 'Add Reactions' and 'Manage Messages' permissions.
-
-Regiment/blacklist matching (page 3) reads from guild_config, set via
-/setup -> Background Check:
-  - regiment_groups:    comma-separated Roblox group IDs. Any of the user's
-                         groups matching one of these IDs is shown as a regiment.
-  - blacklisted_groups: comma-separated Roblox group IDs.
-  - blacklisted_names:  comma-separated Roblox group NAMES (case-insensitive).
-                         A group matches the blacklist if its ID is in
-                         blacklisted_groups OR its name is in blacklisted_names.
-  - whitelisted_groups: comma-separated Roblox group IDs that override a
-                         blacklist match (checked last, takes priority).
-All four are optional - an unset/empty list just means no matches for that check.
 """
 
 import asyncio
@@ -34,17 +22,10 @@ TIMEOUT_SECONDS = 60.0
 DATE_FORMAT = "%a, %d %b %Y %H:%M:%S GMT"
 
 
-def _cfg_list(guild_config: dict, key: str) -> list[str]:
-    raw = guild_config.get(key, "")
-    return [v.strip() for v in raw.split(",") if v.strip()]
-
-
-def _build_alerts(member: discord.Member, extra_alerts: list[str] = None) -> str:
+def _build_alerts(member: discord.Member) -> str:
     alerts = []
     if (datetime.now(timezone.utc) - member.joined_at).days < 7:
         alerts.append("* [This user is new to our discord server.]")
-    if extra_alerts:
-        alerts.extend(extra_alerts)
     if not alerts:
         alerts.append("* [No alerts.]")
     return "\n".join(alerts)
@@ -56,41 +37,7 @@ class BGCheck(commands.Cog):
 
     async def _build_pages(self, ctx: commands.Context, member: discord.Member):
         verification = await db.get_verification(member.id)
-
-        roblox_id = None
-        groups = []
-        if verification:
-            roblox_id = int(verification["roblox_id"])
-            groups = await roblox.get_user_groups(roblox_id)
-
-        # Work out regiment/blacklist matches once, up front, so both the
-        # regiment page and the shared Alerts field can use them.
-        guild_config = await db.get_guild_config(ctx.guild.id)
-        regiment_group_ids = set(_cfg_list(guild_config, "regiment_groups"))
-        blacklisted_group_ids = set(_cfg_list(guild_config, "blacklisted_groups"))
-        whitelisted_group_ids = set(_cfg_list(guild_config, "whitelisted_groups"))
-        blacklisted_names = {n.lower() for n in _cfg_list(guild_config, "blacklisted_names")}
-
-        regiment_matches = []
-        blacklist_matches = []
-
-        for entry in groups:
-            group_id = str(entry["group"]["id"])
-            group_name = entry["group"]["name"]
-            role_name = entry["role"]["name"]
-
-            if group_id in regiment_group_ids:
-                regiment_matches.append(f"**{group_name}** — {role_name}")
-
-            is_blacklisted = group_id in blacklisted_group_ids or group_name.lower() in blacklisted_names
-            if is_blacklisted and group_id not in whitelisted_group_ids:
-                blacklist_matches.append(f"**{group_name}** ({role_name})")
-
-        extra_alerts = []
-        if blacklist_matches:
-            extra_alerts.append(f"* [This user is in {len(blacklist_matches)} blacklisted group(s) — see Page 3.]")
-
-        alerts_text = _build_alerts(member, extra_alerts)
+        alerts_text = _build_alerts(member)
 
         # Page 1/3 — User Discord Account Details
         discord_embed = embeds.base_embed()
@@ -108,11 +55,13 @@ class BGCheck(commands.Cog):
         roblox_embed.title = "User ROBLOX Account Details"
 
         if verification:
+            roblox_id = int(verification["roblox_id"])
             roblox_user = await roblox.get_user_by_id(roblox_id)
             avatar_url = await roblox.get_avatar_headshot_url(roblox_id)
             followers = await roblox.get_followers_count(roblox_id)
             following = await roblox.get_following_count(roblox_id)
             friends = await roblox.get_friends_count(roblox_id)
+            groups = await roblox.get_user_groups(roblox_id)
 
             if avatar_url:
                 roblox_embed.set_thumbnail(url=avatar_url)
@@ -139,16 +88,11 @@ class BGCheck(commands.Cog):
         regiment_embed = embeds.base_embed()
         regiment_embed.set_author(name=str(member), icon_url=member.display_avatar.url)
         regiment_embed.title = "User Regiment Details"
-
-        if not verification:
-            regiment_embed.add_field(name="\u200b", value="[This user has not verified their Roblox account.]", inline=False)
+        regiments = await db.get_user_regiments(ctx.guild.id, member.id) if hasattr(db, "get_user_regiments") else None
+        if regiments:
+            regiment_embed.add_field(name="Regiments", value="\n".join(regiments), inline=False)
         else:
-            regiment_value = "\n".join(regiment_matches) if regiment_matches else "[This user is not in any regiments]"
-            regiment_embed.add_field(name="Regiments", value=regiment_value, inline=False)
-
-            blacklist_value = "\n".join(blacklist_matches) if blacklist_matches else "[Not in any blacklisted groups]"
-            regiment_embed.add_field(name="Blacklisted Groups", value=blacklist_value, inline=False)
-
+            regiment_embed.add_field(name="\u200b", value="[This user is not in any regiments]", inline=False)
         regiment_embed.add_field(name="Alerts", value=alerts_text, inline=False)
 
         pages = [discord_embed, roblox_embed, regiment_embed]

@@ -52,7 +52,7 @@ COGS = [
     "cogs.setup",
     "cogs.bmt",
     "cogs.nuke",
-    
+    "cogs.activitycheck",
 ]
 
 
