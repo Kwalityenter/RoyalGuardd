@@ -176,19 +176,13 @@ class SettingModal(discord.ui.Modal):
         super().__init__(title=meta["label"][:45])
         self.option_key = option_key
         self.meta = meta
-        style = discord.TextStyle.paragraph if meta["type"] in ("list", "secret") else discord.TextStyle.short
-        if meta["type"] == "list":
-            max_len = 400
-        elif meta["type"] == "secret":
-            max_len = 2000  # Roblox .ROBLOSECURITY cookies typically run 800+ chars - 200 was truncating them silently
-        else:
-            max_len = 200
+        style = discord.TextStyle.paragraph if meta["type"] == "list" else discord.TextStyle.short
         self.value_input = discord.ui.TextInput(
             label=meta["label"][:45],
             style=style,
             placeholder=meta["description"][:100],
             required=True,
-            max_length=max_len,
+            max_length=400 if meta["type"] == "list" else 200,
         )
         self.add_item(self.value_input)
 
