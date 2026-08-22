@@ -88,19 +88,8 @@ class RoyalGuardBot(commands.Bot):
             self.add_view(RankRequestView(req["_id"]))
         log.info(f"Re-registered {len(pending_requests)} pending rank request views.")
 
-        dev_guild_id = os.getenv("DEV_GUILD_ID")
-        if dev_guild_id:
-            guild = discord.Object(id=int(dev_guild_id))
-            self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            log.info(f"Synced {len(synced)} slash commands to dev guild {dev_guild_id}.")
-        else:
-            synced = await self.tree.sync()
-            log.info(f"Synced {len(synced)} global slash commands.")
-
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync()
-        log.info("Cleared stale global commands (one-time).")
+        synced = await self.tree.sync()
+        log.info(f"Synced {len(synced)} global slash commands. Note: global command updates can take up to an hour to appear in all servers (Discord-side caching).")
 
     async def on_ready(self):
         log.info(f"Logged in as {self.user} (ID: {self.user.id})")

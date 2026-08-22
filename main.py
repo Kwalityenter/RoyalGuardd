@@ -47,8 +47,6 @@ COGS = [
     "cogs.automod",
     "cogs.antinuke",
     "cogs.antiraid",
-    "cogs.tenants",
-    "cogs.registerpanel",
     "cogs.setup",
     "cogs.bmt",
     "cogs.nuke",
