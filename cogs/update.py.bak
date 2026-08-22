@@ -68,6 +68,7 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
     # role IDs. Non-Verified is always removed here since this function only runs
     # for already-verified members.
     guild_config = await db.get_guild_config(guild.id)
+    is_verified = await db.get_verification(member.id) is not None
 
     def _cfg_role(key):
         role_id = guild_config.get(key)
@@ -81,13 +82,15 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
             role = discord.utils.get(guild.roles, name=name)
             if role:
                 roles.append(role)
+            else:
+                print(f"Royal Guard: could not resolve role name '{name}' from '{key}' in guild {guild.id} ({guild.name}) - check for typos/case mismatch in /setup.")
         return roles
 
     sticky_adjustments = []
     for role in _cfg_role_list("extra_roles"):
         sticky_adjustments.append((role, has_any_rank))
     for role in _cfg_role_list("verified_roles"):
-        sticky_adjustments.append((role, has_any_rank))
+        sticky_adjustments.append((role, is_verified))
     sticky_adjustments.append((_cfg_role("ranks_role_id"), has_any_rank))
     sticky_adjustments.append((_cfg_role("non_verified_role_id"), False))
     sticky_adjustments.append((_cfg_role("non_ba_role_id"), not has_any_rank))
