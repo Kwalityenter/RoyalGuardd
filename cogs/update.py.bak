@@ -52,10 +52,10 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
             try:
                 if should_have and not has_role:
                     await member.add_roles(role, reason="Royal Guard rank sync")
-                    added.append(role.name)
+                    added.append(role.mention)
                 elif not should_have and has_role:
                     await member.remove_roles(role, reason="Royal Guard rank sync")
-                    removed.append(role.name)
+                    removed.append(role.mention)
             except discord.Forbidden:
                 continue
 
@@ -102,10 +102,10 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
         try:
             if should_have and not has_role:
                 await member.add_roles(role, reason="Royal Guard rank sync (sticky)")
-                added.append(role.name)
+                added.append(role.mention)
             elif not should_have and has_role:
                 await member.remove_roles(role, reason="Royal Guard rank sync (sticky)")
-                removed.append(role.name)
+                removed.append(role.mention)
         except discord.Forbidden:
             continue
 

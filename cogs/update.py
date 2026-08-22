@@ -10,6 +10,15 @@ on the member's live Roblox rank, and sets their nickname to
 from any matched rankbind. If no rankbind for their current rank has a
 prefix set, the nickname is left as just their Roblox username with no
 prefix.
+
+IMPORTANT: every groupbind's live rank is fetched BEFORE any role is
+added/removed. If a Roblox API call fails for any group (rate limit, Roblox
+outage, etc.), sync_member_roles raises roblox.RobloxAPIError and makes ZERO
+role changes for this call. Previously, a failed API call silently looked
+identical to "the user left every group," causing mass false de-ranks -
+every rank-tied role stripped at once with nothing added back. Callers must
+catch roblox.RobloxAPIError and tell the user to retry rather than treat a
+failed sync the same as "nothing needed to change."
 """
 
 import asyncio
@@ -27,6 +36,10 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
     """Compares the member's current roles against every rankbind, adds/removes
     roles as needed, sets their nickname to "<prefix> <roblox_username>",
     and logs the result. Returns (added, removed, nickname_changed).
+
+    Raises roblox.RobloxAPIError if any group's live rank can't be fetched -
+    in that case NO roles are touched at all, to avoid a false de-rank from a
+    transient Roblox API failure.
     """
     groupbinds = await db.list_groupbinds(guild.id)
     added, removed = [], []
@@ -34,9 +47,23 @@ async def sync_member_roles(guild: discord.Guild, member: discord.Member, roblox
     best_rank_id = -1
     has_any_rank = False
 
+    # Fetch every group's live rank FIRST, before touching any roles. If any
+    # one of these fails, bail out completely - don't remove roles based on
+    # partial/unknown data.
+    rank_by_group = {}
     for gb in groupbinds:
         group_id = int(gb["group_id"])
-        rank_id, _ = await roblox.get_user_rank_in_group(roblox_id, group_id)
+        try:
+            rank_id, _ = await roblox.get_user_rank_in_group(roblox_id, group_id)
+        except roblox.RobloxAPIError as e:
+            print(f"Royal Guard: aborting role sync for {member} ({member.id}) in guild {guild.id} "
+                  f"- Roblox API failed for group {group_id}, refusing to risk a false de-rank. {e}")
+            raise
+        rank_by_group[group_id] = rank_id
+
+    for gb in groupbinds:
+        group_id = int(gb["group_id"])
+        rank_id = rank_by_group[group_id]
         rankbinds = await db.list_rankbinds(guild.id, group_id)
 
         for rb in rankbinds:
@@ -168,9 +195,17 @@ class Update(commands.Cog):
                 embed=embeds.error_embed("Warning - Not Verified", "You must be verified to update your roles.")
             )
 
-        added, removed, nickname_changed = await sync_member_roles(
-            interaction.guild, interaction.user, int(verification["roblox_id"])
-        )
+        try:
+            added, removed, nickname_changed = await sync_member_roles(
+                interaction.guild, interaction.user, int(verification["roblox_id"])
+            )
+        except roblox.RobloxAPIError:
+            return await interaction.followup.send(
+                embed=embeds.error_embed(
+                    "Roblox Temporarily Unavailable",
+                    "Roblox's API didn't respond correctly just now, so no roles were changed. Please try `/update` again in a minute."
+                )
+            )
 
         embed = embeds.success_embed("Roles Update", "Succesfully updated user roles")
         embed.add_field(name="Nickname", value=interaction.user.nick or interaction.user.name, inline=False)

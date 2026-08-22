@@ -6,6 +6,7 @@ for bgcheck, rank syncing, and group lookups.
 """
 
 import os
+import json
 import aiohttp
 
 USERS_API = "https://users.roblox.com/v1"
@@ -139,6 +140,16 @@ async def set_group_rank(group_id: int, roblox_user_id: int, role_id: int, guild
 
     print(f"[SETRANK DEBUG] cookie_length={len(cookie)} url={url} role_id={role_id} guild_id={guild_id}")
 
+    def _extract_error_message(body: str) -> str:
+        try:
+            data = json.loads(body)
+            errors = data.get("errors") or []
+            if errors:
+                return errors[0].get("userFacingMessage") or errors[0].get("message") or body
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        return body or "Unknown error from Roblox."
+
     async with aiohttp.ClientSession(cookies=cookies) as session:
         async with session.patch(url, json={"roleId": role_id}) as resp:
             body = await resp.text()
@@ -146,11 +157,15 @@ async def set_group_rank(group_id: int, roblox_user_id: int, role_id: int, guild
             if resp.status == 403:
                 csrf_token = resp.headers.get("x-csrf-token")
                 print(f"[SETRANK DEBUG] csrf_token_received={bool(csrf_token)}")
+            elif resp.status == 200:
+                return True
             else:
-                return resp.status == 200
+                raise RuntimeError(_extract_error_message(body))
 
         headers = {"x-csrf-token": csrf_token} if csrf_token else {}
         async with session.patch(url, json={"roleId": role_id}, headers=headers) as resp:
             body = await resp.text()
             print(f"[SETRANK DEBUG] second patch status={resp.status} body={body}")
-            return resp.status == 200
+            if resp.status == 200:
+                return True
+            raise RuntimeError(_extract_error_message(body))

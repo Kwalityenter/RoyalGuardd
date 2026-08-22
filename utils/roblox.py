@@ -16,6 +16,16 @@ FRIENDS_API = "https://friends.roblox.com/v1"
 PREMIUM_API = "https://premiumfeatures.roblox.com/v1"
 
 
+class RobloxAPIError(Exception):
+    """Raised when a Roblox API call fails (non-200) in a context where a
+    silent fallback would be dangerous - specifically group/rank lookups,
+    where treating 'API failed' the same as 'user is not in this group'
+    causes false de-ranks. Callers of get_user_rank_in_group /
+    get_user_groups must handle this explicitly rather than let a failure
+    look identical to 'not in the group'."""
+    pass
+
+
 async def _get_json(session: aiohttp.ClientSession, url: str, **kwargs):
     async with session.get(url, **kwargs) as resp:
         if resp.status != 200:
@@ -83,9 +93,17 @@ async def get_premium_status(roblox_id: int):
 
 
 async def get_user_groups(roblox_id: int):
+    """Raises RobloxAPIError on a failed request instead of returning an
+    empty list, so callers checking group membership never mistake 'Roblox's
+    API is down/rate-limited right now' for 'this user is in zero groups' -
+    that false equivalence caused mass false de-ranks in sync_member_roles."""
     async with aiohttp.ClientSession() as session:
-        data = await _get_json(session, f"{GROUPS_API}/users/{roblox_id}/groups/roles")
-        return data.get("data", []) if data else []
+        async with session.get(f"{GROUPS_API}/users/{roblox_id}/groups/roles") as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise RobloxAPIError(f"Roblox groups API returned {resp.status} for user {roblox_id}: {body}")
+            data = await resp.json()
+            return data.get("data", [])
 
 
 async def get_group_info(group_id: int):
@@ -100,6 +118,9 @@ async def get_group_roles(group_id: int):
 
 
 async def get_user_rank_in_group(roblox_id: int, group_id: int):
+    """Raises RobloxAPIError (propagated from get_user_groups) if the lookup
+    fails - does NOT default to rank 0/Guest on failure, since that used to
+    be indistinguishable from a genuine 'not in this group' result."""
     groups = await get_user_groups(roblox_id)
     for entry in groups:
         if str(entry["group"]["id"]) == str(group_id):
@@ -116,11 +137,15 @@ async def set_group_rank(group_id: int, roblox_user_id: int, role_id: int, guild
     Checks the per-guild cookie configured via /setup (Ranking > ROBLOX Cookie)
     first, so each tenant server can rank with its own Roblox service account.
     Falls back to the global ROBLOX_SECURITY_COOKIE env var if the guild hasn't
-    configured one, or if guild_id isn't passed at all — this keeps the main
+    configured one, or if guild_id isn't passed at all - this keeps the main
     bot working with zero config changes needed.
 
     Roblox requires a fresh X-CSRF-TOKEN per request, obtained from a 403
     response header.
+
+    Raises RuntimeError with Roblox's actual error message on failure, so
+    callers can show the real reason instead of a generic "check your cookie"
+    message.
     """
     cookie = None
     if guild_id is not None:
