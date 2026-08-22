@@ -51,6 +51,7 @@ COGS = [
     "cogs.bmt",
     "cogs.nuke",
     "cogs.activitycheck",
+    "cogs.acceptrequest",
 ]
 
 
