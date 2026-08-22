@@ -78,19 +78,17 @@ class SetRank(commands.Cog):
         rank_role_data = next((r for r in roles if r["rank"] == rank_id), None)
 
         success = False
-        error_message = None
         if rank_role_data:
             try:
                 success = await roblox.set_group_rank(group_id, roblox_id, rank_role_data["id"], guild_id=interaction.guild.id)
-            except RuntimeError as e:
+            except RuntimeError:
                 success = False
-                error_message = str(e)
 
         if not success:
             return await interaction.followup.send(
                 embed=embeds.error_embed(
                     "Rank Change Failed",
-                    error_message or "Could not update the rank in Roblox. Make sure ROBLOX_SECURITY_COOKIE is configured and the service account outranks the target rank."
+                    "Could not update the rank in Roblox. Make sure ROBLOX_SECURITY_COOKIE is configured and the service account outranks the target rank."
                 )
             )
 
