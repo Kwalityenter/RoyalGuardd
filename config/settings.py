@@ -21,7 +21,7 @@ ERROR_COLOR = 0x800000
 WARNING_COLOR = 0xFFD700
 INFO_COLOR = 0x3498DB
 
-FOOTER_TEXT = "Royal Guard Services © All Rights Reserved."
+FOOTER_TEXT = "Made by Darsh © All Rights Reserved"
 FOOTER_ICON = BOT_ICON_URL
 
 AUTHOR_TEXT = BOT_NAME

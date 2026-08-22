@@ -23,8 +23,7 @@ def base_embed(title: str = None, description: str = None, color: int = None) ->
         description=description,
         color=color if color is not None else settings.EMBED_COLOR,
     )
-    if settings.FOOTER_TEXT:
-        embed.set_footer(text=settings.FOOTER_TEXT, icon_url=settings.FOOTER_ICON)
+    embed.set_footer(text=settings.FOOTER_TEXT, icon_url=settings.FOOTER_ICON)
     return embed
 
 
@@ -52,8 +51,7 @@ def verification_panel_embed() -> discord.Embed:
     )
     embed.set_author(name=settings.BOT_NAME, icon_url=settings.AUTHOR_ICON)
     embed.set_thumbnail(url=settings.BOT_ICON_URL)
-    if settings.FOOTER_TEXT:
-        embed.set_footer(text=settings.FOOTER_TEXT, icon_url=settings.FOOTER_ICON)
+    embed.set_footer(text=settings.FOOTER_TEXT, icon_url=settings.FOOTER_ICON)
     return embed
 
 
@@ -64,6 +62,5 @@ def ticket_panel_embed() -> discord.Embed:
         color=settings.EMBED_COLOR,
     )
     embed.set_author(name=settings.BOT_NAME, icon_url=settings.AUTHOR_ICON)
-    if settings.FOOTER_TEXT:
-        embed.set_footer(text=settings.FOOTER_TEXT, icon_url=settings.FOOTER_ICON)
+    embed.set_footer(text=settings.FOOTER_TEXT, icon_url=settings.FOOTER_ICON)
     return embed
